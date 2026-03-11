@@ -1,29 +1,54 @@
-# OpenClow 飞书接入教程（中国区）
+# OpenClow 飞书接入教程（中国区图文版）
 
 ```text
 🦞 OpenClow Installer
 ```
 
-目标：先在飞书完成机器人应用创建，再用一条命令把 OpenClow 安装到本地并接上飞书。
+本教程是中国区专用流程。
 
-参考文档：
-- OpenClaw 飞书文档（中文）：https://docs.openclaw.ai/zh-cn/channels/feishu
+官方入口：
 - 飞书开放平台：https://open.feishu.cn
-- 飞书官方教程（流程参考）：https://www.feishu.cn/content/article/7613711414611463386
+- OpenClaw 飞书文档（中文）：https://docs.openclaw.ai/zh-cn/channels/feishu
 
-## 1. 创建飞书机器人应用（打卡）
+## 准备材料
 
-- [ ] 打开并登录 `https://open.feishu.cn`
-- [ ] 创建「企业自建应用」
-- [ ] 填写应用名称、描述、头像
-- [ ] 在「凭证与基础信息」复制：
-  - `App ID`
-  - `App Secret`
-- [ ] 在「应用能力 > 机器人」启用机器人，并设置机器人名称
+- 企业管理员飞书账号
+- 机器人名称
+- 机器人头像
 
-## 2. 配置权限（打卡）
+## 第 1 步：登录飞书开放平台
 
-在「权限管理」使用批量导入（Batch Import），导入下面配置：
+操作：访问 `https://open.feishu.cn` 并登录。
+
+截图位：`docs/images/step-01-login.png`
+![第1步登录飞书](docs/images/step-01-login.png)
+
+## 第 2 步：创建企业自建应用
+
+操作：点击「创建企业自建应用」，填写应用名称、描述、头像。
+
+截图位：`docs/images/step-02-create-app.png`
+![第2步创建应用](docs/images/step-02-create-app.png)
+
+## 第 3 步：开启机器人能力
+
+操作：进入「应用能力 > 机器人」，开启机器人并设置机器人名称。
+
+截图位：`docs/images/step-03-enable-bot.png`
+![第3步开启机器人](docs/images/step-03-enable-bot.png)
+
+## 第 4 步：复制凭据
+
+操作：在「凭证与基础信息」复制：
+- `App ID`
+- `App Secret`
+
+截图位：`docs/images/step-04-credentials.png`
+![第4步复制凭据](docs/images/step-04-credentials.png)
+
+## 第 5 步：导入权限
+
+操作：在「权限管理」使用 Batch Import 导入下面配置。
 
 ```json
 {
@@ -57,46 +82,51 @@
 }
 ```
 
-- [ ] 保存权限配置
-- [ ] 提交需要审核的权限申请
-- [ ] 管理员审批通过
+然后保存并提交审核。
 
-## 3. 配置消息接入（打卡）
+截图位：`docs/images/step-05-permissions.png`
+![第5步导入权限](docs/images/step-05-permissions.png)
 
-按 OpenClaw 推荐，选择「长连接」接收消息（不需要公网地址）。
+## 第 6 步：配置消息接入（长连接）
 
-- [ ] 在飞书开发配置中启用长连接消息接入
-- [ ] 添加消息事件 `im.message.receive_v1`
-- [ ] 保存配置
+操作：在消息接入里选择长连接，并添加事件 `im.message.receive_v1`。
 
-## 4. 发布应用（打卡）
+截图位：`docs/images/step-06-message-connection.png`
+![第6步消息接入](docs/images/step-06-message-connection.png)
 
-- [ ] 创建版本
-- [ ] 提交审核并发布
-- [ ] 确认企业内可用
+## 第 7 步：发布应用
 
-## 5. 本地安装（只要这一条命令）
+操作：创建版本，提交审核并发布。
+
+截图位：`docs/images/step-07-release.png`
+![第7步发布应用](docs/images/step-07-release.png)
+
+## 第 8 步：本地安装（只需这一条命令）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-脚本会自动完成：环境检查、依赖安装、OpenClow 安装、配置文件生成、自启动配置。
+截图位：`docs/images/step-08-local-install.png`
+![第8步本地安装](docs/images/step-08-local-install.png)
 
-## 6. 填写本地配置（打卡）
+## 第 9 步：填写本地配置
 
 打开 `~/.config/openclow/config.env`，填写：
+- `FEISHU_APP_ID`
+- `FEISHU_APP_SECRET`
+- `FEISHU_BOT_NAME`
+- `FEISHU_BOT_AVATAR`
 
-- `FEISHU_APP_ID=...`
-- `FEISHU_APP_SECRET=...`
-- `FEISHU_BOT_NAME=...`
-- `FEISHU_BOT_AVATAR=...`
-- `FEISHU_ENCRYPT_KEY=...`（可选）
-- `FEISHU_VERIFICATION_TOKEN=...`（可选）
+截图位：`docs/images/step-09-local-config.png`
+![第9步填写配置](docs/images/step-09-local-config.png)
 
-## 7. 验收（打卡）
+## 第 10 步：验收
 
-- [ ] 飞书应用已发布
-- [ ] 权限全部通过
-- [ ] 本地配置已填写
-- [ ] 机器人可正常收发消息
+- 飞书应用已发布
+- 权限已审批通过
+- 本地配置已填写
+- 机器人可正常收发消息
+
+截图位：`docs/images/step-10-check.png`
+![第10步验收](docs/images/step-10-check.png)
