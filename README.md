@@ -3,34 +3,6 @@
 ```text
 🦞  OpenClow Installer
 ```
-
-一键安装脚本：自动检查环境、安装依赖、下载 OpenClow、写入飞书配置、配置自启动。
-
-仓库地址：
-- [GitHub - Jackson-Loyns/openclow-installer](https://github.com/Jackson-Loyns/openclow-installer)
-
-## 为什么这版更完整
-
-- 增加了 `Node.js` 版本检查与自动安装（默认要求 `22+`）
-- 增加了 `Python3` 版本检查与自动安装（默认要求 `3.9+`）
-- 仍保留基础依赖自动安装（`curl`、`tar`、`grep`、`sed`、`awk`）
-- 支持无交互部署（CI / 批量机器）
-- 自启动支持：
-  - Linux: `systemd --user`
-  - macOS: `LaunchAgent`
-
-## 脚本执行流程
-
-1. 解析参数与环境变量
-2. 检测 OS/ARCH（仅 `Linux/macOS` + `amd64/arm64`）
-3. 安装基础命令依赖
-4. 检查并安装 Node.js / npm（默认 Node `22+`）
-5. 检查并安装 Python3 / pip（默认 Python `3.9+`）
-6. 解析并下载 OpenClow 二进制
-7. 安装到 `~/.openclow`，软链到 `~/.local/bin/openclow`
-8. 写飞书配置文件 `~/.config/openclow/config.env`
-9. 配置开机自启动
-
 ## 快速开始（curl 方式）
 
 交互式安装（会提示输入飞书参数）：
