@@ -126,6 +126,34 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+trim_value() {
+  local v="$1"
+  # Remove CR and leading/trailing whitespace.
+  v="${v//$'\r'/}"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+}
+
+normalize_settings() {
+  MIN_NODE_VERSION="$(trim_value "$MIN_NODE_VERSION")"
+  MIN_PYTHON_VERSION="$(trim_value "$MIN_PYTHON_VERSION")"
+  MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION%\"}"
+  MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION#\"}"
+  MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION%\'}"
+  MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION#\'}"
+
+  if [[ -z "$MIN_NODE_VERSION" ]]; then
+    MIN_NODE_VERSION="22"
+  fi
+  if [[ -z "$MIN_PYTHON_VERSION" ]]; then
+    MIN_PYTHON_VERSION="3.9"
+  fi
+  if [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+$ ]]; then
+    MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION}.0"
+  fi
+}
+
 validate_settings() {
   [[ "$MIN_NODE_VERSION" =~ ^[0-9]+$ ]] || err "--min-node-version must be an integer, got: $MIN_NODE_VERSION"
   [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
@@ -946,6 +974,7 @@ EOF
 
 main() {
   parse_args "$@"
+  normalize_settings
   validate_settings
   print_lobster_banner
   detect_platform
