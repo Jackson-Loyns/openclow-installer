@@ -12,11 +12,11 @@
 
 ## 1. 推荐的发布方式（让用户可以 `curl` 安装）
 
-1. 把本仓库推送到 GitHub（例如：`your-org/openclow-installer`）。
+1. 把本仓库推送到 GitHub（当前示例仓库：`Jackson-Loyns/openclow-installer`）。
 2. 使用 Raw 地址供用户安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash
 ```
 
 ## 2. 用户安装命令示例
@@ -24,13 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/in
 ### 2.1 交互式安装（会提示输入飞书配置）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/install.sh | bash -s --
+curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
 ### 2.2 无交互安装（CI/批量部署）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- \
   --repo your-org/openclow \
   --version latest \
   --feishu-app-id "cli_xxx" \
@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/in
 ### 2.3 指定自定义下载地址（当 Release 命名不一致时）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/openclow-installer/main/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- \
   --download-url "https://github.com/your-org/openclow/releases/download/v1.2.3/openclow_linux_amd64.tar.gz"
 ```
 
