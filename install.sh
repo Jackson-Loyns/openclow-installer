@@ -21,6 +21,8 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
 
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+ASSUME_YES="${ASSUME_YES:-false}"
+CHECK_ONLY="${CHECK_ONLY:-false}"
 PROMPT_FEISHU="${PROMPT_FEISHU:-true}"
 SKIP_DEP_INSTALL="${SKIP_DEP_INSTALL:-false}"
 CHECK_NODE="${CHECK_NODE:-true}"
@@ -40,10 +42,23 @@ ARCH=""
 PKG_MANAGER=""
 RESOLVED_VERSION=""
 RESOLVED_DOWNLOAD_URL=""
+STEP_INDEX=0
+
+MISSING_BASE_DEPS=()
+NODE_STATUS="unknown"
+NODE_VERSION=""
+NODE_NEEDS_INSTALL="false"
+PYTHON_STATUS="unknown"
+PYTHON_VERSION=""
+PYTHON_NEEDS_INSTALL="false"
 
 log() { printf '[INFO] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
 err() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+step() {
+  STEP_INDEX=$((STEP_INDEX + 1))
+  printf '\n[STEP %d] %s\n' "$STEP_INDEX" "$*"
+}
 
 print_lobster_banner() {
   cat <<'EOF'
@@ -71,7 +86,9 @@ Options:
   --config-file <path>               Config file path (default: ~/.config/openclow/config.env)
   --exec-name <name>                 Executable name in package (default: openclow)
   --no-autostart                     Do not enable auto-start service
-  --non-interactive                  No prompts; rely on flags/env only
+  --non-interactive                  No prompts; defaults to check-only unless --yes
+  --yes, -y                          Skip install confirmation and continue install
+  --check-only                       Only run environment checks, do not install
   --prompt-feishu                    Prompt Feishu credentials in terminal (default on)
   --skip-deps                        Do not auto install missing dependencies
   --skip-node-check                  Skip Node.js runtime check/install
@@ -89,7 +106,8 @@ Options:
 Environment variables:
   INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
-  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, PROMPT_FEISHU, SKIP_DEP_INSTALL
+  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, ASSUME_YES, CHECK_ONLY
+  PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
   FEISHU_BOT_NAME, FEISHU_BOT_AVATAR
@@ -116,6 +134,8 @@ parse_args() {
       --exec-name) OPENCLOW_EXECUTABLE="$2"; shift 2 ;;
       --no-autostart) AUTO_START="false"; shift ;;
       --non-interactive) NON_INTERACTIVE="true"; shift ;;
+      --yes|-y) ASSUME_YES="true"; shift ;;
+      --check-only) CHECK_ONLY="true"; shift ;;
       --prompt-feishu) PROMPT_FEISHU="true"; shift ;;
       --skip-deps) SKIP_DEP_INSTALL="true"; shift ;;
       --skip-node-check) CHECK_NODE="false"; shift ;;
@@ -219,6 +239,129 @@ detect_package_manager() {
   PKG_MANAGER=""
 }
 
+collect_base_dependency_status() {
+  local dep
+  MISSING_BASE_DEPS=()
+  for dep in curl tar grep sed awk; do
+    command_exists "$dep" || MISSING_BASE_DEPS+=("$dep")
+  done
+}
+
+collect_node_status() {
+  local current_major
+  NODE_STATUS="skipped"
+  NODE_VERSION=""
+  NODE_NEEDS_INSTALL="false"
+  if [[ "$CHECK_NODE" != "true" ]]; then
+    return
+  fi
+  if ! command_exists node; then
+    NODE_STATUS="missing"
+    NODE_NEEDS_INSTALL="true"
+    return
+  fi
+  NODE_VERSION="$(node -v 2>/dev/null || true)"
+  current_major="$(printf '%s' "$NODE_VERSION" | sed 's/^v//' | cut -d. -f1)"
+  if [[ -z "$current_major" || "$current_major" -lt "$MIN_NODE_VERSION" ]]; then
+    NODE_STATUS="too_low"
+    NODE_NEEDS_INSTALL="true"
+    return
+  fi
+  NODE_STATUS="ok"
+}
+
+collect_python_status() {
+  PYTHON_STATUS="skipped"
+  PYTHON_VERSION=""
+  PYTHON_NEEDS_INSTALL="false"
+  if [[ "$CHECK_PYTHON" != "true" ]]; then
+    return
+  fi
+  if ! command_exists python3; then
+    PYTHON_STATUS="missing"
+    PYTHON_NEEDS_INSTALL="true"
+    return
+  fi
+  PYTHON_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+  if [[ -z "$PYTHON_VERSION" ]] || ! python_version_ge "$PYTHON_VERSION" "$MIN_PYTHON_VERSION"; then
+    PYTHON_STATUS="too_low"
+    PYTHON_NEEDS_INSTALL="true"
+    return
+  fi
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    PYTHON_STATUS="pip_missing"
+    PYTHON_NEEDS_INSTALL="true"
+    return
+  fi
+  PYTHON_STATUS="ok"
+}
+
+print_preflight_report() {
+  printf '\n=== 环境检查报告 ===\n'
+  printf '系统: %s/%s\n' "$OS" "$ARCH"
+  printf '安装方式: %s\n' "$INSTALL_METHOD"
+  printf '包管理器: %s\n' "${PKG_MANAGER:-未检测到}"
+
+  if [[ "${#MISSING_BASE_DEPS[@]}" -eq 0 ]]; then
+    printf '基础依赖: OK (curl tar grep sed awk)\n'
+  else
+    printf '基础依赖: 缺失 -> %s\n' "${MISSING_BASE_DEPS[*]}"
+  fi
+
+  case "$NODE_STATUS" in
+    ok) printf 'Node.js: OK (%s)\n' "${NODE_VERSION:-unknown}" ;;
+    missing) printf 'Node.js: 缺失 (需要 >= %s)\n' "$MIN_NODE_VERSION" ;;
+    too_low) printf 'Node.js: 版本过低 (%s, 需要 >= %s)\n' "${NODE_VERSION:-unknown}" "$MIN_NODE_VERSION" ;;
+    skipped) printf 'Node.js: 已跳过检查\n' ;;
+    *) printf 'Node.js: 未知\n' ;;
+  esac
+
+  case "$PYTHON_STATUS" in
+    ok) printf 'Python3: OK (%s, pip 可用)\n' "${PYTHON_VERSION:-unknown}" ;;
+    missing) printf 'Python3: 缺失 (需要 >= %s)\n' "$MIN_PYTHON_VERSION" ;;
+    too_low) printf 'Python3: 版本过低 (%s, 需要 >= %s)\n' "${PYTHON_VERSION:-unknown}" "$MIN_PYTHON_VERSION" ;;
+    pip_missing) printf 'Python3: pip 缺失 (Python %s)\n' "${PYTHON_VERSION:-unknown}" ;;
+    skipped) printf 'Python3: 已跳过检查\n' ;;
+    *) printf 'Python3: 未知\n' ;;
+  esac
+
+  printf '====================\n'
+}
+
+preflight_checks() {
+  detect_package_manager
+  collect_base_dependency_status
+  collect_node_status
+  collect_python_status
+  print_preflight_report
+}
+
+confirm_install_after_checks() {
+  local answer=""
+
+  if [[ "$CHECK_ONLY" == "true" ]]; then
+    return 1
+  fi
+  if [[ "$ASSUME_YES" == "true" ]]; then
+    return 0
+  fi
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    warn "非交互模式默认只检查环境，不会直接安装。加 --yes 才会继续安装。"
+    return 1
+  fi
+  if [[ ! -r /dev/tty ]]; then
+    warn "未检测到可交互终端，默认只执行检查。加 --yes 可直接安装。"
+    return 1
+  fi
+
+  printf '\n'
+  read -r -p "是否继续安装并自动修复环境? [y/N]: " answer < /dev/tty || answer=""
+  case "$answer" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 install_homebrew_if_needed() {
   if command_exists brew; then
     return
@@ -246,8 +389,11 @@ install_missing_deps() {
   done
 
   if [[ "${#missing[@]}" -eq 0 ]]; then
+    log "Base dependencies OK: curl tar grep sed awk"
     return
   fi
+
+  log "Missing base dependencies: ${missing[*]}"
 
   if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
     err "Missing dependencies: ${missing[*]}. Remove --skip-deps or install them manually."
@@ -1357,9 +1503,10 @@ configure_autostart() {
 }
 
 print_summary() {
-  local node_info python_info
+  local node_info python_info start_cmd
   node_info="$(command -v node >/dev/null 2>&1 && node -v || echo skipped)"
   python_info="$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo skipped)"
+  start_cmd="$INSTALL_ROOT/run-openclow.sh"
   cat <<EOF
 
 Install complete.
@@ -1376,21 +1523,61 @@ Install complete.
 - Node.js: $node_info
 - Python: $python_info
 
+Run commands:
+  前台直接运行:
+    $start_cmd
+  菜单管理（推荐）:
+    $BIN_DIR/openclow-manager
+    然后选择 [3] 启动并开启自启动
+
 Quick checks:
   $BIN_DIR/$APP_NAME --help
   $BIN_DIR/openclow-manager
 EOF
 }
 
+print_check_only_summary() {
+  cat <<EOF
+
+仅完成环境检查，未执行安装。
+
+下一步：
+1) 交互安装（会再次检查并询问）:
+   curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
+2) 非交互直接安装:
+   curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- --non-interactive --yes --feishu-app-id <APP_ID> --feishu-app-secret <APP_SECRET>
+EOF
+}
+
 main() {
+  local proceed_install="false"
   parse_args "$@"
   normalize_settings
   validate_settings
   print_lobster_banner
+
+  step "检测系统信息"
   detect_platform
+
+  step "执行环境预检查（不会安装）"
+  preflight_checks
+
+  if confirm_install_after_checks; then
+    proceed_install="true"
+  fi
+
+  if [[ "$proceed_install" != "true" ]]; then
+    print_check_only_summary
+    return 0
+  fi
+
+  step "安装/修复基础依赖"
   install_missing_deps
+  step "检查并安装 Node.js / Python"
   ensure_node_runtime
   ensure_python_runtime
+
+  step "安装 OpenClow"
   if [[ "$INSTALL_METHOD" == "npm" ]]; then
     RESOLVED_VERSION="$NPM_VERSION"
     RESOLVED_DOWNLOAD_URL="npm:${NPM_PACKAGE}@${NPM_VERSION}"
@@ -1399,8 +1586,12 @@ main() {
     resolve_download_url
     download_and_install_binary
   fi
+
+  step "写入配置并生成管理命令"
   write_config
   configure_autostart
+
+  step "安装完成"
   print_summary
 }
 
