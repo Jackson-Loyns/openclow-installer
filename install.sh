@@ -4,7 +4,12 @@ set -euo pipefail
 APP_NAME="openclow"
 INSTALLER_VERSION="0.1.0"
 
-OPENCLOW_REPO="${OPENCLOW_REPO:-openclow/openclow}"
+INSTALL_METHOD="${INSTALL_METHOD:-npm}"
+NPM_PACKAGE="${NPM_PACKAGE:-openclaw}"
+NPM_VERSION="${NPM_VERSION:-latest}"
+NPM_BIN_NAME="${NPM_BIN_NAME:-openclaw}"
+
+OPENCLOW_REPO="${OPENCLOW_REPO:-openclaw/openclaw}"
 OPENCLOW_VERSION="${OPENCLOW_VERSION:-latest}"
 OPENCLOW_DOWNLOAD_URL="${OPENCLOW_DOWNLOAD_URL:-}"
 OPENCLOW_EXECUTABLE="${OPENCLOW_EXECUTABLE:-openclow}"
@@ -54,9 +59,13 @@ Usage:
   bash install.sh [options]
 
 Options:
-  --repo <owner/repo>                GitHub repo, default: openclow/openclow
+  --repo <owner/repo>                GitHub repo, default: openclaw/openclaw
   --version <tag|latest>             Release tag or latest (default)
   --download-url <url>               Direct download URL (override repo+version)
+  --install-method <npm|release>     Install method, default: npm
+  --npm-package <name>               npm package name, default: openclaw
+  --npm-version <version>            npm package version/tag, default: latest
+  --npm-bin-name <name>              installed CLI bin name, default: openclaw
   --install-root <path>              Install directory (default: ~/.openclow)
   --bin-dir <path>                   Symlink directory (default: ~/.local/bin)
   --config-file <path>               Config file path (default: ~/.config/openclow/config.env)
@@ -78,6 +87,7 @@ Options:
   -h, --help                         Show help
 
 Environment variables:
+  INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
   INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
@@ -92,6 +102,10 @@ parse_args() {
       --repo) OPENCLOW_REPO="$2"; shift 2 ;;
       --version) OPENCLOW_VERSION="$2"; shift 2 ;;
       --download-url) OPENCLOW_DOWNLOAD_URL="$2"; shift 2 ;;
+      --install-method) INSTALL_METHOD="$2"; shift 2 ;;
+      --npm-package) NPM_PACKAGE="$2"; shift 2 ;;
+      --npm-version) NPM_VERSION="$2"; shift 2 ;;
+      --npm-bin-name) NPM_BIN_NAME="$2"; shift 2 ;;
       --install-root) INSTALL_ROOT="$2"; shift 2 ;;
       --bin-dir) BIN_DIR="$2"; shift 2 ;;
       --config-file)
@@ -157,6 +171,7 @@ normalize_settings() {
 validate_settings() {
   [[ "$MIN_NODE_VERSION" =~ ^[0-9]+$ ]] || err "--min-node-version must be an integer, got: $MIN_NODE_VERSION"
   [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
+  [[ "$INSTALL_METHOD" == "npm" || "$INSTALL_METHOD" == "release" ]] || err "--install-method must be npm or release, got: $INSTALL_METHOD"
 }
 
 run_privileged() {
@@ -525,6 +540,46 @@ ensure_path_export() {
   fi
 }
 
+install_with_npm() {
+  local pkg spec npm_bin
+  pkg="$NPM_PACKAGE"
+  spec="${pkg}@${NPM_VERSION}"
+
+  command_exists npm || err "npm not found. Node.js install seems incomplete."
+
+  log "Installing via npm: $spec"
+  if ! npm install -g "$spec"; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "npm install failed for $spec."
+    fi
+    if command_exists sudo; then
+      run_privileged npm install -g "$spec"
+    else
+      err "npm install failed and sudo is unavailable."
+    fi
+  fi
+
+  npm_bin="$(command -v "$NPM_BIN_NAME" || true)"
+  [[ -n "$npm_bin" ]] || err "Installed package but CLI '$NPM_BIN_NAME' not found in PATH."
+
+  mkdir -p "$INSTALL_ROOT/bin" "$BIN_DIR"
+  cat > "$INSTALL_ROOT/bin/$APP_NAME" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if command -v "$NPM_BIN_NAME" >/dev/null 2>&1; then
+  exec "\$(command -v "$NPM_BIN_NAME")" "\$@"
+fi
+if command -v npx >/dev/null 2>&1; then
+  exec npx --yes "$NPM_PACKAGE@${NPM_VERSION}" "\$@"
+fi
+echo "[ERROR] $NPM_BIN_NAME not found. Try reinstalling: npm install -g $spec" >&2
+exit 1
+EOF
+  chmod +x "$INSTALL_ROOT/bin/$APP_NAME"
+  ln -sfn "$INSTALL_ROOT/bin/$APP_NAME" "$BIN_DIR/$APP_NAME"
+  ensure_path_export
+}
+
 download_and_install_binary() {
   local tmpdir package_path extracted_bin cleaned_url
   tmpdir="$(mktemp -d)"
@@ -680,9 +735,39 @@ set -euo pipefail
 APP_NAME="$APP_NAME"
 CONFIG_FILE="$CONFIG_FILE"
 INSTALL_ROOT="$INSTALL_ROOT"
+BIN_DIR="$BIN_DIR"
 OS="\$(uname -s | tr '[:upper:]' '[:lower:]')"
+CUR_UID="\$(id -u)"
+SERVICE_NAME="\${APP_NAME}.service"
+PLIST="\$HOME/Library/LaunchAgents/com.\${APP_NAME}.agent.plist"
 
 command_exists() { command -v "\$1" >/dev/null 2>&1; }
+
+if [[ -t 1 ]]; then
+  C_CYAN="\$(printf '\033[36m')"
+  C_GREEN="\$(printf '\033[32m')"
+  C_YELLOW="\$(printf '\033[33m')"
+  C_RED="\$(printf '\033[31m')"
+  C_BOLD="\$(printf '\033[1m')"
+  C_DIM="\$(printf '\033[2m')"
+  C_RESET="\$(printf '\033[0m')"
+else
+  C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_BOLD=""; C_DIM=""; C_RESET=""
+fi
+
+press_enter() {
+  read -r -p "按回车继续..." _
+}
+
+title() {
+  clear || true
+  echo -e "\${C_CYAN}╔══════════════════════════════════════╗\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET} \${C_BOLD}🦞 OpenClow Manager\${C_RESET}               \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}╚══════════════════════════════════════╝\${C_RESET}"
+  echo -e "\${C_DIM}安装目录: \$INSTALL_ROOT\${C_RESET}"
+  echo -e "\${C_DIM}配置文件: \$CONFIG_FILE\${C_RESET}"
+  echo
+}
 
 mask_secret() {
   local v="\$1"
@@ -753,8 +838,7 @@ show_config() {
   app_secret="\$(read_cfg FEISHU_APP_SECRET)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
   bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
-  echo
-  echo "当前配置"
+  echo -e "\${C_BOLD}当前配置\${C_RESET}"
   echo "  FEISHU_APP_ID: \$app_id"
   echo "  FEISHU_APP_SECRET: \$(mask_secret "\$app_secret")"
   echo "  FEISHU_BOT_NAME: \$bot_name"
@@ -763,44 +847,75 @@ show_config() {
   echo
 }
 
-service_start() {
+service_enable_autostart() {
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user enable --now "\${APP_NAME}.service"
+    systemctl --user enable --now "\$SERVICE_NAME"
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    local plist="\$HOME/Library/LaunchAgents/com.\${APP_NAME}.agent.plist"
-    launchctl bootstrap "gui/\$(id -u)" "\$plist" >/dev/null 2>&1 || true
-    launchctl enable "gui/\$(id -u)/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
-    launchctl kickstart -k "gui/\$(id -u)/com.\${APP_NAME}.agent"
+    launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
+    launchctl enable "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
+    return 1
   fi
+  echo -e "\${C_GREEN}[OK]\${C_RESET} 已启动并开启自启动"
 }
 
-service_stop() {
+service_disable_autostart() {
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user disable --now "\${APP_NAME}.service" || true
+    systemctl --user disable --now "\$SERVICE_NAME" || true
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl bootout "gui/\$(id -u)" "com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+    launchctl disable "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+    launchctl bootout "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
+    return 1
   fi
+  echo -e "\${C_YELLOW}[OK]\${C_RESET} 已关闭自启动并停止服务"
+}
+
+service_pause() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user stop "\$SERVICE_NAME" || true
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    launchctl bootout "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+    return 1
+  fi
+  echo -e "\${C_YELLOW}[OK]\${C_RESET} 已暂停服务"
+}
+
+service_resume() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user start "\$SERVICE_NAME"
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+    return 1
+  fi
+  echo -e "\${C_GREEN}[OK]\${C_RESET} 已恢复服务"
 }
 
 service_restart() {
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user restart "\${APP_NAME}.service"
+    systemctl --user restart "\$SERVICE_NAME"
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl kickstart -k "gui/\$(id -u)/com.\${APP_NAME}.agent"
+    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
+    return 1
   fi
+  echo -e "\${C_GREEN}[OK]\${C_RESET} 服务已重启"
 }
 
 service_status() {
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user status "\${APP_NAME}.service" --no-pager || true
+    systemctl --user status "\$SERVICE_NAME" --no-pager || true
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl print "gui/\$(id -u)/com.\${APP_NAME}.agent" || true
+    launchctl print "gui/\$CUR_UID/com.\${APP_NAME}.agent" || true
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
   fi
@@ -808,7 +923,7 @@ service_status() {
 
 show_logs() {
   if [[ "\$OS" == "linux" ]] && command_exists journalctl; then
-    journalctl --user -u "\${APP_NAME}.service" -n 50 --no-pager || true
+    journalctl --user -u "\$SERVICE_NAME" -n 50 --no-pager || true
   elif [[ "\$OS" == "darwin" ]]; then
     echo "== stdout =="
     tail -n 50 "$INSTALL_ROOT/\${APP_NAME}.log" 2>/dev/null || true
@@ -819,31 +934,59 @@ show_logs() {
   fi
 }
 
+delete_openclow() {
+  local confirm keep_cfg
+  echo -e "\${C_RED}危险操作：将删除本机 OpenClow 安装。\${C_RESET}"
+  read -r -p "输入 DELETE 确认删除: " confirm
+  [[ "\$confirm" == "DELETE" ]] || { echo "已取消"; return 0; }
+
+  service_disable_autostart || true
+  rm -f "\$BIN_DIR/openclow" "\$BIN_DIR/openclow-manager"
+
+  if [[ "\$OS" == "linux" ]]; then
+    rm -f "\$HOME/.config/systemd/user/\$SERVICE_NAME"
+    command_exists systemctl && systemctl --user daemon-reload >/dev/null 2>&1 || true
+  elif [[ "\$OS" == "darwin" ]]; then
+    rm -f "\$PLIST"
+  fi
+
+  rm -rf "\$INSTALL_ROOT"
+
+  read -r -p "是否同时删除配置文件 \$CONFIG_FILE ? [y/N]: " keep_cfg
+  case "\$keep_cfg" in
+    y|Y|yes|YES) rm -f "\$CONFIG_FILE" ;;
+  esac
+  echo -e "\${C_GREEN}[OK]\${C_RESET} 已删除 OpenClow。"
+}
+
 menu() {
   while true; do
-    echo
-    echo "==============================="
-    echo "  OpenClow Manager"
-    echo "==============================="
+    title
     echo "1) 查看当前配置"
     echo "2) 设置飞书配置"
-    echo "3) 启动服务"
-    echo "4) 停止服务"
-    echo "5) 重启服务"
-    echo "6) 查看服务状态"
-    echo "7) 查看最近日志"
+    echo "3) 启动并开启自启动"
+    echo "4) 暂停服务"
+    echo "5) 恢复服务"
+    echo "6) 关闭自启动"
+    echo "7) 重启服务"
+    echo "8) 查看服务状态"
+    echo "9) 查看最近日志"
+    echo "10) 删除 OpenClow"
     echo "0) 退出"
     read -r -p "请选择: " choice
     case "\$choice" in
-      1) show_config ;;
-      2) configure_feishu ;;
-      3) service_start ;;
-      4) service_stop ;;
-      5) service_restart ;;
-      6) service_status ;;
-      7) show_logs ;;
+      1) show_config; press_enter ;;
+      2) configure_feishu; press_enter ;;
+      3) service_enable_autostart; press_enter ;;
+      4) service_pause; press_enter ;;
+      5) service_resume; press_enter ;;
+      6) service_disable_autostart; press_enter ;;
+      7) service_restart; press_enter ;;
+      8) service_status; press_enter ;;
+      9) show_logs; press_enter ;;
+      10) delete_openclow; press_enter ;;
       0) exit 0 ;;
-      *) echo "无效选项" ;;
+      *) echo "无效选项"; press_enter ;;
     esac
   done
 }
@@ -960,6 +1103,7 @@ Install complete.
 - Install root: $INSTALL_ROOT
 - Binary link: $BIN_DIR/$APP_NAME
 - Config file: $CONFIG_FILE
+- Install method: $INSTALL_METHOD
 - Repo: $OPENCLOW_REPO
 - Version: ${RESOLVED_VERSION:-custom-url}
 - Download URL: $RESOLVED_DOWNLOAD_URL
@@ -981,8 +1125,14 @@ main() {
   install_missing_deps
   ensure_node_runtime
   ensure_python_runtime
-  resolve_download_url
-  download_and_install_binary
+  if [[ "$INSTALL_METHOD" == "npm" ]]; then
+    RESOLVED_VERSION="$NPM_VERSION"
+    RESOLVED_DOWNLOAD_URL="npm:${NPM_PACKAGE}@${NPM_VERSION}"
+    install_with_npm
+  else
+    resolve_download_url
+    download_and_install_binary
+  fi
   write_config
   configure_autostart
   print_summary
