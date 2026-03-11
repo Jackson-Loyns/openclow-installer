@@ -16,6 +16,7 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
 
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+PROMPT_FEISHU="${PROMPT_FEISHU:-false}"
 SKIP_DEP_INSTALL="${SKIP_DEP_INSTALL:-false}"
 CHECK_NODE="${CHECK_NODE:-true}"
 CHECK_PYTHON="${CHECK_PYTHON:-true}"
@@ -60,6 +61,7 @@ Options:
   --exec-name <name>                 Executable name in package (default: openclow)
   --no-autostart                     Do not enable auto-start service
   --non-interactive                  No prompts; rely on flags/env only
+  --prompt-feishu                    Prompt Feishu credentials in terminal
   --skip-deps                        Do not auto install missing dependencies
   --skip-node-check                  Skip Node.js runtime check/install
   --skip-python-check                Skip Python runtime check/install
@@ -73,7 +75,7 @@ Options:
 
 Environment variables:
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
-  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, SKIP_DEP_INSTALL
+  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
 EOF
@@ -95,6 +97,7 @@ parse_args() {
       --exec-name) OPENCLOW_EXECUTABLE="$2"; shift 2 ;;
       --no-autostart) AUTO_START="false"; shift ;;
       --non-interactive) NON_INTERACTIVE="true"; shift ;;
+      --prompt-feishu) PROMPT_FEISHU="true"; shift ;;
       --skip-deps) SKIP_DEP_INSTALL="true"; shift ;;
       --skip-node-check) CHECK_NODE="false"; shift ;;
       --skip-python-check) CHECK_PYTHON="false"; shift ;;
@@ -569,17 +572,33 @@ prompt_value() {
   done
 }
 
+read_config_value() {
+  local key="$1"
+  local value=""
+  if [[ -f "$CONFIG_FILE" ]]; then
+    value="$(grep -E "^${key}=" "$CONFIG_FILE" | tail -n1 | sed "s/^${key}=//" || true)"
+  fi
+  printf '%s' "$value"
+}
+
+hydrate_feishu_from_existing_config() {
+  [[ -n "$FEISHU_APP_ID" ]] || FEISHU_APP_ID="$(read_config_value FEISHU_APP_ID)"
+  [[ -n "$FEISHU_APP_SECRET" ]] || FEISHU_APP_SECRET="$(read_config_value FEISHU_APP_SECRET)"
+  [[ -n "$FEISHU_ENCRYPT_KEY" ]] || FEISHU_ENCRYPT_KEY="$(read_config_value FEISHU_ENCRYPT_KEY)"
+  [[ -n "$FEISHU_VERIFICATION_TOKEN" ]] || FEISHU_VERIFICATION_TOKEN="$(read_config_value FEISHU_VERIFICATION_TOKEN)"
+}
+
 write_config() {
   umask 077
   mkdir -p "$CONFIG_DIR"
+  hydrate_feishu_from_existing_config
 
-  prompt_value FEISHU_APP_ID "请输入飞书 FEISHU_APP_ID (cli_xxx)" true false
-  prompt_value FEISHU_APP_SECRET "请输入飞书 FEISHU_APP_SECRET" true true
-  prompt_value FEISHU_ENCRYPT_KEY "请输入飞书 FEISHU_ENCRYPT_KEY (可选，直接回车跳过)" false true
-  prompt_value FEISHU_VERIFICATION_TOKEN "请输入飞书 FEISHU_VERIFICATION_TOKEN (可选，直接回车跳过)" false true
-
-  [[ -n "$FEISHU_APP_ID" ]] || err "FEISHU_APP_ID is required. Please rerun and input it."
-  [[ -n "$FEISHU_APP_SECRET" ]] || err "FEISHU_APP_SECRET is required. Please rerun and input it."
+  if [[ "$PROMPT_FEISHU" == "true" && "$NON_INTERACTIVE" != "true" ]]; then
+    prompt_value FEISHU_APP_ID "请输入飞书 FEISHU_APP_ID (cli_xxx)" true false
+    prompt_value FEISHU_APP_SECRET "请输入飞书 FEISHU_APP_SECRET" true true
+    prompt_value FEISHU_ENCRYPT_KEY "请输入飞书 FEISHU_ENCRYPT_KEY (可选，直接回车跳过)" false true
+    prompt_value FEISHU_VERIFICATION_TOKEN "请输入飞书 FEISHU_VERIFICATION_TOKEN (可选，直接回车跳过)" false true
+  fi
 
   cat > "$CONFIG_FILE" <<EOF
 # ${APP_NAME} runtime environment
@@ -591,8 +610,8 @@ OPENCLOW_HOME=${INSTALL_ROOT}
 EOF
   chmod 600 "$CONFIG_FILE"
   log "Wrote config: $CONFIG_FILE"
-  [[ -n "$FEISHU_ENCRYPT_KEY" ]] || warn "FEISHU_ENCRYPT_KEY is empty (optional)."
-  [[ -n "$FEISHU_VERIFICATION_TOKEN" ]] || warn "FEISHU_VERIFICATION_TOKEN is empty (optional)."
+  [[ -n "$FEISHU_APP_ID" ]] || warn "FEISHU_APP_ID is empty. Set it later in $CONFIG_FILE"
+  [[ -n "$FEISHU_APP_SECRET" ]] || warn "FEISHU_APP_SECRET is empty. Set it later in $CONFIG_FILE"
 }
 
 write_runner() {
