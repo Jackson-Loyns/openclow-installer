@@ -4,15 +4,31 @@
 🦞 OpenClow Installer
 ```
 
-## 1. 先在飞书开放平台准备应用
+## 1. 飞书配置（手把手）
 
 平台地址：`https://open.feishu.cn`
 
-按顺序完成：
-- 创建企业自建应用
-- 开启机器人能力
-- 在「凭证与基础信息」拿到 `App ID` 和 `App Secret`
-- 在权限管理完成 OpenClow 需要的权限申请并通过审批
+按这个顺序做：
+
+1. 创建应用  
+进入飞书开放平台，创建「企业自建应用」，填应用名称和头像。
+
+2. 开启机器人  
+在「应用能力」里开启「机器人」。
+
+3. 配权限  
+在「权限管理」里按 OpenClow 官方文档配置权限并申请审核通过。  
+参考（官方）：`https://docs.openclaw.ai/zh-cn/channels/feishu`
+
+4. 消息接收设置  
+在「开发配置」里把消息接收改成「长连接」，并添加消息事件 `im.message.receive_v1`。
+
+5. 发布应用  
+在「版本管理与发布」里创建版本并发布。
+
+完成后，在「凭证与基础信息」复制：
+- `App ID`
+- `App Secret`
 
 ## 2. 本地执行安装命令
 
@@ -35,3 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/ma
 `~/.config/openclow/config.env`
 
 如果要修改飞书配置，直接编辑这个文件即可。
+
+字段对应关系：
+- 飞书 `App ID` -> `FEISHU_APP_ID`
+- 飞书 `App Secret` -> `FEISHU_APP_SECRET`
