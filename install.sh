@@ -740,30 +740,55 @@ OS="\$(uname -s | tr '[:upper:]' '[:lower:]')"
 CUR_UID="\$(id -u)"
 SERVICE_NAME="\${APP_NAME}.service"
 PLIST="\$HOME/Library/LaunchAgents/com.\${APP_NAME}.agent.plist"
+MENU_ITEMS=(
+  "查看当前配置"
+  "设置飞书配置"
+  "启动并开启自启动"
+  "暂停服务"
+  "恢复服务"
+  "关闭自启动"
+  "重启服务"
+  "查看服务状态"
+  "查看最近日志"
+  "删除 OpenClow"
+  "退出"
+)
 
 command_exists() { command -v "\$1" >/dev/null 2>&1; }
 
 if [[ -t 1 ]]; then
   C_CYAN="\$(printf '\033[36m')"
+  C_BLUE="\$(printf '\033[34m')"
   C_GREEN="\$(printf '\033[32m')"
   C_YELLOW="\$(printf '\033[33m')"
   C_RED="\$(printf '\033[31m')"
+  C_WHITE="\$(printf '\033[37m')"
   C_BOLD="\$(printf '\033[1m')"
   C_DIM="\$(printf '\033[2m')"
   C_RESET="\$(printf '\033[0m')"
 else
-  C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_BOLD=""; C_DIM=""; C_RESET=""
+  C_CYAN=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_WHITE=""; C_BOLD=""; C_DIM=""; C_RESET=""
 fi
 
 press_enter() {
   read -r -p "按回车继续..." _
 }
 
-title() {
+read_key() {
+  local key rest
+  IFS= read -rsn1 key || return 1
+  if [[ "\$key" == \$'\\e' ]]; then
+    IFS= read -rsn2 -t 0.05 rest || true
+    key="\$key\$rest"
+  fi
+  printf '%s' "\$key"
+}
+
+render_header() {
   clear || true
-  echo -e "\${C_CYAN}╔══════════════════════════════════════╗\${C_RESET}"
-  echo -e "\${C_CYAN}║\${C_RESET} \${C_BOLD}🦞 OpenClow Manager\${C_RESET}               \${C_CYAN}║\${C_RESET}"
-  echo -e "\${C_CYAN}╚══════════════════════════════════════╝\${C_RESET}"
+  echo -e "\${C_CYAN}╔══════════════════════════════════════════════════════════════╗\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE}🦞 OPENCLOW MANAGER\${C_RESET}  \${C_DIM}Coding Helper 本地管理面板\${C_RESET}        \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}╚══════════════════════════════════════════════════════════════╝\${C_RESET}"
   echo -e "\${C_DIM}安装目录: \$INSTALL_ROOT\${C_RESET}"
   echo -e "\${C_DIM}配置文件: \$CONFIG_FILE\${C_RESET}"
   echo
@@ -845,6 +870,92 @@ show_config() {
   echo "  FEISHU_BOT_AVATAR: \$bot_avatar"
   echo "  CONFIG_FILE: \$CONFIG_FILE"
   echo
+}
+
+service_state_raw() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user is-active "\$SERVICE_NAME" 2>/dev/null || echo "inactive"
+    return 0
+  fi
+  if [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    if launchctl print "gui/\$CUR_UID/com.\${APP_NAME}.agent" 2>/dev/null | grep -q "state = running"; then
+      echo "running"
+    elif [[ -f "\$PLIST" ]]; then
+      echo "loaded"
+    else
+      echo "inactive"
+    fi
+    return 0
+  fi
+  echo "unknown"
+}
+
+autostart_state_raw() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user is-enabled "\$SERVICE_NAME" 2>/dev/null || echo "disabled"
+    return 0
+  fi
+  if [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    if [[ ! -f "\$PLIST" ]]; then
+      echo "disabled"
+    elif launchctl print-disabled "gui/\$CUR_UID" 2>/dev/null | grep -q "\"com.\${APP_NAME}.agent\" => true"; then
+      echo "disabled"
+    else
+      echo "enabled"
+    fi
+    return 0
+  fi
+  echo "unknown"
+}
+
+service_state_text() {
+  case "\$(service_state_raw)" in
+    active|running) echo -e "\${C_GREEN}运行中\${C_RESET}" ;;
+    inactive|failed|loaded) echo -e "\${C_YELLOW}已停止\${C_RESET}" ;;
+    *) echo -e "\${C_YELLOW}未知\${C_RESET}" ;;
+  esac
+}
+
+autostart_state_text() {
+  case "\$(autostart_state_raw)" in
+    enabled) echo -e "\${C_GREEN}已开启\${C_RESET}" ;;
+    disabled) echo -e "\${C_YELLOW}已关闭\${C_RESET}" ;;
+    *) echo -e "\${C_YELLOW}未知\${C_RESET}" ;;
+  esac
+}
+
+render_status_panel() {
+  local app_id bot_name
+  app_id="\$(read_cfg FEISHU_APP_ID)"
+  bot_name="\$(read_cfg FEISHU_BOT_NAME)"
+  [[ -n "\$bot_name" ]] || bot_name="OpenClow Bot"
+  echo -e "\${C_CYAN}┌────────────────────── 当前状态 ──────────────────────┐\${C_RESET}"
+  echo -e "\${C_CYAN}│\${C_RESET} 服务状态: \$(service_state_text)   自启动: \$(autostart_state_text)"
+  echo -e "\${C_CYAN}│\${C_RESET} 飞书应用: \${C_BOLD}\${app_id:-未配置}\${C_RESET}"
+  echo -e "\${C_CYAN}│\${C_RESET} 机器人名: \${bot_name}"
+  echo -e "\${C_CYAN}└───────────────────────────────────────────────────────┘\${C_RESET}"
+  echo
+}
+
+render_menu_panel() {
+  local selected="\$1"
+  local i idx label
+  echo -e "\${C_CYAN}┌──────────────────────── 主菜单 ───────────────────────┐\${C_RESET}"
+  for i in "\${!MENU_ITEMS[@]}"; do
+    label="\${MENU_ITEMS[\$i]}"
+    if [[ "\$i" -eq 10 ]]; then
+      idx=0
+    else
+      idx=\$((i + 1))
+    fi
+    if [[ "\$i" -eq "\$selected" ]]; then
+      echo -e "\${C_CYAN}│\${C_RESET} \${C_GREEN}\${C_BOLD}> \${idx}. \${label}\${C_RESET}"
+    else
+      echo -e "\${C_CYAN}│\${C_RESET}   \${idx}. \${label}"
+    fi
+  done
+  echo -e "\${C_CYAN}└───────────────────────────────────────────────────────┘\${C_RESET}"
+  echo -e "\${C_DIM}操作: ↑↓ 选择 | Enter 确认 | q 退出\${C_RESET}"
 }
 
 ensure_service_definition() {
@@ -1037,9 +1148,56 @@ delete_openclow() {
   echo -e "\${C_GREEN}[OK]\${C_RESET} 已删除 OpenClow。"
 }
 
-menu() {
+run_menu_action() {
+  case "\$1" in
+    0) show_config ;;
+    1) configure_feishu ;;
+    2) service_enable_autostart ;;
+    3) service_pause ;;
+    4) service_resume ;;
+    5) service_disable_autostart ;;
+    6) service_restart ;;
+    7) service_status ;;
+    8) show_logs ;;
+    9) delete_openclow ;;
+    10) exit 0 ;;
+    *) echo "无效选项"; return 1 ;;
+  esac
+}
+
+menu_interactive() {
+  local selected=0
+  local max_index=\$((\${#MENU_ITEMS[@]} - 1))
+  local key
   while true; do
-    title
+    render_header
+    render_status_panel
+    render_menu_panel "\$selected"
+    key="\$(read_key || true)"
+    case "\$key" in
+      \$'\\e[A') selected=\$((selected - 1)); [[ "\$selected" -lt 0 ]] && selected="\$max_index" ;;
+      \$'\\e[B') selected=\$((selected + 1)); [[ "\$selected" -gt "\$max_index" ]] && selected=0 ;;
+      \$'\\n'|\$'\\r') run_menu_action "\$selected"; press_enter ;;
+      1) selected=0 ;;
+      2) selected=1 ;;
+      3) selected=2 ;;
+      4) selected=3 ;;
+      5) selected=4 ;;
+      6) selected=5 ;;
+      7) selected=6 ;;
+      8) selected=7 ;;
+      9) selected=8 ;;
+      0) selected=10 ;;
+      q|Q) exit 0 ;;
+      *) ;;
+    esac
+  done
+}
+
+menu_basic() {
+  while true; do
+    render_header
+    render_status_panel
     echo "1) 查看当前配置"
     echo "2) 设置飞书配置"
     echo "3) 启动并开启自启动"
@@ -1067,6 +1225,14 @@ menu() {
       *) echo "无效选项"; press_enter ;;
     esac
   done
+}
+
+menu() {
+  if [[ -t 0 && -t 1 ]]; then
+    menu_interactive
+  else
+    menu_basic
+  fi
 }
 
 menu

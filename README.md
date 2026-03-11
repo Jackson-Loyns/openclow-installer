@@ -96,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/ma
 - 飞书 `App ID` -> `FEISHU_APP_ID`
 - 飞书 `App Secret` -> `FEISHU_APP_SECRET`
 
-## 4. 菜单化管理（像图里那样）
+## 4. 菜单化管理（新版终端界面）
 
 安装后可直接运行：
 
@@ -114,6 +114,11 @@ openclow-manager
 - 删除 OpenClow（带确认）
 - 查看服务状态
 - 查看最近日志
+
+操作方式：
+- `↑ / ↓` 选择菜单
+- `Enter` 执行操作
+- `q` 退出
 
 官方参考：
 - OpenClaw 飞书文档（中文）：https://docs.openclaw.ai/zh-CN/channels/feishu
