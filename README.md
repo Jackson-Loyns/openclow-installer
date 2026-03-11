@@ -1,31 +1,29 @@
-# OpenClow + 飞书本地部署教程
+# OpenClow 飞书接入教程（中国区）
 
 ```text
 🦞 OpenClow Installer
 ```
 
-这份教程目标是：先创建好飞书/Lark 机器人应用，再用一条命令把本地 OpenClow 安装并接上。
+目标：先在飞书完成机器人应用创建，再用一条命令把 OpenClow 安装到本地并接上飞书。
 
-官方参考：
-- OpenClaw Feishu 文档：https://docs.openclaw.ai/channels/feishu
+参考文档：
+- OpenClaw 飞书文档（中文）：https://docs.openclaw.ai/zh-cn/channels/feishu
 - 飞书开放平台：https://open.feishu.cn
-- Lark（美国/国际）开放平台：https://open.larksuite.com/app
+- 飞书官方教程（流程参考）：https://www.feishu.cn/content/article/7613711414611463386
 
-## 1. 先在飞书创建应用机器人（打卡清单）
+## 1. 创建飞书机器人应用（打卡）
 
-- [ ] 打开平台并登录
-  - 中国大陆租户：`https://open.feishu.cn`
-  - 美国/国际租户：`https://open.larksuite.com/app`
-- [ ] 点击「Create enterprise app（创建企业自建应用）」
+- [ ] 打开并登录 `https://open.feishu.cn`
+- [ ] 创建「企业自建应用」
 - [ ] 填写应用名称、描述、头像
-- [ ] 在「Credentials & Basic Info（凭证与基础信息）」复制：
-  - `App ID`（格式一般是 `cli_xxx`）
+- [ ] 在「凭证与基础信息」复制：
+  - `App ID`
   - `App Secret`
-- [ ] 在「App Capability > Bot」启用机器人能力并设置机器人名称
+- [ ] 在「应用能力 > 机器人」启用机器人，并设置机器人名称
 
-## 2. 权限管理（按 OpenClaw 推荐）
+## 2. 配置权限（打卡）
 
-在「Permissions」里使用 Batch Import（批量导入）：
+在「权限管理」使用批量导入（Batch Import），导入下面配置：
 
 ```json
 {
@@ -59,56 +57,46 @@
 }
 ```
 
-## 3. 事件回调（美国 Lark 重点）
+- [ ] 保存权限配置
+- [ ] 提交需要审核的权限申请
+- [ ] 管理员审批通过
 
-推荐方式：**Long Connection（长连接 / WebSocket）**，不需要公网回调地址。
+## 3. 配置消息接入（打卡）
 
-- [ ] 在「Event Subscription」选择「Use long connection to receive events」
-- [ ] 添加事件：`im.message.receive_v1`
-- [ ] 确保本地 OpenClow 网关在运行后再保存（否则可能保存失败）
+按 OpenClaw 推荐，选择「长连接」接收消息（不需要公网地址）。
 
-美国场景建议：
-- 使用 `open.larksuite.com` 创建应用
-- OpenClow 里把 Feishu 域设置为 `lark`（国际域）
+- [ ] 在飞书开发配置中启用长连接消息接入
+- [ ] 添加消息事件 `im.message.receive_v1`
+- [ ] 保存配置
 
-如果你公司必须走 webhook 回调模式，再额外配置：
-- `Verification Token`
-- 可从公网访问的 HTTPS 回调地址（美国网络可达）
+## 4. 发布应用（打卡）
 
-## 4. 发布应用
-
-- [ ] 在「Version Management & Release」创建版本
+- [ ] 创建版本
 - [ ] 提交审核并发布
-- [ ] 等待管理员审批（企业自建应用通常流程较快）
+- [ ] 确认企业内可用
 
-## 5. 本地一键安装（只要这一条命令）
+## 5. 本地安装（只要这一条命令）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-脚本会自动：
-- 检查系统环境（macOS / Linux）
-- 检查并安装依赖与 Node/Python
-- 下载并安装 OpenClow
-- 写入配置文件并配置自启动
+脚本会自动完成：环境检查、依赖安装、OpenClow 安装、配置文件生成、自启动配置。
 
-配置文件路径：`~/.config/openclow/config.env`
+## 6. 填写本地配置（打卡）
 
-## 6. 把飞书信息写入本地配置
-
-在 `~/.config/openclow/config.env` 填入：
+打开 `~/.config/openclow/config.env`，填写：
 
 - `FEISHU_APP_ID=...`
 - `FEISHU_APP_SECRET=...`
-- `FEISHU_ENCRYPT_KEY=...`（可选）
-- `FEISHU_VERIFICATION_TOKEN=...`（仅 webhook 模式必填）
 - `FEISHU_BOT_NAME=...`
 - `FEISHU_BOT_AVATAR=...`
+- `FEISHU_ENCRYPT_KEY=...`（可选）
+- `FEISHU_VERIFICATION_TOKEN=...`（可选）
 
-## 7. 完成验收（打卡）
+## 7. 验收（打卡）
 
-- [ ] 飞书应用已发布并有权限
-- [ ] 事件订阅已保存（推荐长连接）
-- [ ] 本地配置文件已填 App ID / App Secret
-- [ ] 机器人能收到并回复消息
+- [ ] 飞书应用已发布
+- [ ] 权限全部通过
+- [ ] 本地配置已填写
+- [ ] 机器人可正常收发消息
