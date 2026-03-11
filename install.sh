@@ -847,13 +847,77 @@ show_config() {
   echo
 }
 
-service_enable_autostart() {
+ensure_service_definition() {
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user enable --now "\$SERVICE_NAME"
+    local service_dir="\$HOME/.config/systemd/user"
+    local service_file="\$service_dir/\$SERVICE_NAME"
+    mkdir -p "\$service_dir"
+    if [[ ! -f "\$service_file" ]]; then
+      cat > "\$service_file" <<LINUX_EOF
+[Unit]
+Description=\${APP_NAME} service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=\$INSTALL_ROOT/run-openclow.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+LINUX_EOF
+    fi
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  if [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    mkdir -p "\$HOME/Library/LaunchAgents"
+    if [[ ! -f "\$PLIST" ]]; then
+      cat > "\$PLIST" <<MAC_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.\${APP_NAME}.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>\$INSTALL_ROOT/run-openclow.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>\$INSTALL_ROOT/\${APP_NAME}.log</string>
+  <key>StandardErrorPath</key>
+  <string>\$INSTALL_ROOT/\${APP_NAME}.err.log</string>
+</dict>
+</plist>
+MAC_EOF
+    fi
+    return 0
+  fi
+  return 1
+}
+
+service_enable_autostart() {
+  ensure_service_definition || true
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    if ! systemctl --user enable --now "\$SERVICE_NAME"; then
+      echo "[ERROR] 启动失败，请执行: systemctl --user status \$SERVICE_NAME"
+      return 1
+    fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
     launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
     launchctl enable "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
-    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
+    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+      echo "[ERROR] 启动失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
+      return 1
+    fi
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
     return 1
@@ -887,11 +951,18 @@ service_pause() {
 }
 
 service_resume() {
+  ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user start "\$SERVICE_NAME"
+    if ! systemctl --user start "\$SERVICE_NAME"; then
+      echo "[ERROR] 恢复失败，请执行: systemctl --user status \$SERVICE_NAME"
+      return 1
+    fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
     launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
-    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
+    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+      echo "[ERROR] 恢复失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
+      return 1
+    fi
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
     return 1
@@ -900,10 +971,17 @@ service_resume() {
 }
 
 service_restart() {
+  ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
-    systemctl --user restart "\$SERVICE_NAME"
+    if ! systemctl --user restart "\$SERVICE_NAME"; then
+      echo "[ERROR] 重启失败，请执行: systemctl --user status \$SERVICE_NAME"
+      return 1
+    fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"
+    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+      echo "[ERROR] 重启失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
+      return 1
+    fi
   else
     echo "[WARN] 当前系统不支持自动启动管理命令"
     return 1
