@@ -16,7 +16,7 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
 
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
-PROMPT_FEISHU="${PROMPT_FEISHU:-false}"
+PROMPT_FEISHU="${PROMPT_FEISHU:-true}"
 SKIP_DEP_INSTALL="${SKIP_DEP_INSTALL:-false}"
 CHECK_NODE="${CHECK_NODE:-true}"
 CHECK_PYTHON="${CHECK_PYTHON:-true}"
@@ -63,7 +63,7 @@ Options:
   --exec-name <name>                 Executable name in package (default: openclow)
   --no-autostart                     Do not enable auto-start service
   --non-interactive                  No prompts; rely on flags/env only
-  --prompt-feishu                    Prompt Feishu credentials in terminal
+  --prompt-feishu                    Prompt Feishu credentials in terminal (default on)
   --skip-deps                        Do not auto install missing dependencies
   --skip-node-check                  Skip Node.js runtime check/install
   --skip-python-check                Skip Python runtime check/install
@@ -603,11 +603,17 @@ write_config() {
   hydrate_feishu_from_existing_config
 
   if [[ "$PROMPT_FEISHU" == "true" && "$NON_INTERACTIVE" != "true" ]]; then
+    if [[ ! -r /dev/tty ]]; then
+      err "Cannot prompt Feishu config because /dev/tty is unavailable."
+    fi
     prompt_value FEISHU_APP_ID "请输入飞书 FEISHU_APP_ID (cli_xxx)" true false
     prompt_value FEISHU_APP_SECRET "请输入飞书 FEISHU_APP_SECRET" true true
     prompt_value FEISHU_ENCRYPT_KEY "请输入飞书 FEISHU_ENCRYPT_KEY (可选，直接回车跳过)" false true
     prompt_value FEISHU_VERIFICATION_TOKEN "请输入飞书 FEISHU_VERIFICATION_TOKEN (可选，直接回车跳过)" false true
   fi
+
+  [[ -n "$FEISHU_APP_ID" ]] || err "FEISHU_APP_ID is required."
+  [[ -n "$FEISHU_APP_SECRET" ]] || err "FEISHU_APP_SECRET is required."
 
   cat > "$CONFIG_FILE" <<EOF
 # ${APP_NAME} runtime environment
@@ -621,8 +627,6 @@ OPENCLOW_HOME=${INSTALL_ROOT}
 EOF
   chmod 600 "$CONFIG_FILE"
   log "Wrote config: $CONFIG_FILE"
-  [[ -n "$FEISHU_APP_ID" ]] || warn "FEISHU_APP_ID is empty. Set it later in $CONFIG_FILE"
-  [[ -n "$FEISHU_APP_SECRET" ]] || warn "FEISHU_APP_SECRET is empty. Set it later in $CONFIG_FILE"
 }
 
 write_runner() {
