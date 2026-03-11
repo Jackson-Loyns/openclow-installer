@@ -128,7 +128,7 @@ command_exists() {
 
 validate_settings() {
   [[ "$MIN_NODE_VERSION" =~ ^[0-9]+$ ]] || err "--min-node-version must be an integer, got: $MIN_NODE_VERSION"
-  [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
+  [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
 }
 
 run_privileged() {
@@ -644,6 +644,188 @@ EOF
   chmod +x "$INSTALL_ROOT/run-openclow.sh"
 }
 
+write_manager() {
+  cat > "$INSTALL_ROOT/openclow-manager.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_NAME="$APP_NAME"
+CONFIG_FILE="$CONFIG_FILE"
+INSTALL_ROOT="$INSTALL_ROOT"
+OS="\$(uname -s | tr '[:upper:]' '[:lower:]')"
+
+command_exists() { command -v "\$1" >/dev/null 2>&1; }
+
+mask_secret() {
+  local v="\$1"
+  local n="\${#v}"
+  if [[ "\$n" -le 4 ]]; then
+    printf '%s' "\$v"
+  else
+    printf '%s****' "\${v:0:4}"
+  fi
+}
+
+read_cfg() {
+  local key="\$1"
+  [[ -f "\$CONFIG_FILE" ]] || return 0
+  grep -E "^\\\${key}=" "\$CONFIG_FILE" | tail -n1 | sed "s/^\\\${key}=//" || true
+}
+
+write_cfg_key() {
+  local key="\$1"
+  local val="\$2"
+  local tmp
+  mkdir -p "\$(dirname "\$CONFIG_FILE")"
+  [[ -f "\$CONFIG_FILE" ]] || touch "\$CONFIG_FILE"
+  tmp="\$(mktemp)"
+  awk -v k="\$key" -v v="\$val" '
+    BEGIN{found=0}
+    \$0 ~ "^"k"=" {print k"="v; found=1; next}
+    {print}
+    END{if(!found) print k"="v}
+  ' "\$CONFIG_FILE" > "\$tmp"
+  mv "\$tmp" "\$CONFIG_FILE"
+  chmod 600 "\$CONFIG_FILE"
+}
+
+configure_feishu() {
+  local app_id app_secret encrypt_key verify_token bot_name bot_avatar
+  app_id="\$(read_cfg FEISHU_APP_ID)"
+  app_secret="\$(read_cfg FEISHU_APP_SECRET)"
+  encrypt_key="\$(read_cfg FEISHU_ENCRYPT_KEY)"
+  verify_token="\$(read_cfg FEISHU_VERIFICATION_TOKEN)"
+  bot_name="\$(read_cfg FEISHU_BOT_NAME)"
+  bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+
+  echo "请输入飞书配置（可直接回车保留当前值）"
+  read -r -p "FEISHU_APP_ID [\$app_id]: " v; app_id="\${v:-\$app_id}"
+  read -r -s -p "FEISHU_APP_SECRET [隐藏]: " v; echo; app_secret="\${v:-\$app_secret}"
+  read -r -s -p "FEISHU_ENCRYPT_KEY [隐藏]: " v; echo; encrypt_key="\${v:-\$encrypt_key}"
+  read -r -s -p "FEISHU_VERIFICATION_TOKEN [隐藏]: " v; echo; verify_token="\${v:-\$verify_token}"
+  read -r -p "FEISHU_BOT_NAME [\$bot_name]: " v; bot_name="\${v:-\$bot_name}"
+  read -r -p "FEISHU_BOT_AVATAR [\$bot_avatar]: " v; bot_avatar="\${v:-\$bot_avatar}"
+
+  [[ -n "\$app_id" ]] || { echo "[ERROR] FEISHU_APP_ID 不能为空"; return 1; }
+  [[ -n "\$app_secret" ]] || { echo "[ERROR] FEISHU_APP_SECRET 不能为空"; return 1; }
+
+  write_cfg_key FEISHU_APP_ID "\$app_id"
+  write_cfg_key FEISHU_APP_SECRET "\$app_secret"
+  write_cfg_key FEISHU_ENCRYPT_KEY "\$encrypt_key"
+  write_cfg_key FEISHU_VERIFICATION_TOKEN "\$verify_token"
+  write_cfg_key FEISHU_BOT_NAME "\${bot_name:-OpenClow Bot}"
+  write_cfg_key FEISHU_BOT_AVATAR "\$bot_avatar"
+  write_cfg_key OPENCLOW_HOME "$INSTALL_ROOT"
+  echo "[INFO] 配置已保存到 \$CONFIG_FILE"
+}
+
+show_config() {
+  local app_id app_secret bot_name bot_avatar
+  app_id="\$(read_cfg FEISHU_APP_ID)"
+  app_secret="\$(read_cfg FEISHU_APP_SECRET)"
+  bot_name="\$(read_cfg FEISHU_BOT_NAME)"
+  bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+  echo
+  echo "当前配置"
+  echo "  FEISHU_APP_ID: \$app_id"
+  echo "  FEISHU_APP_SECRET: \$(mask_secret "\$app_secret")"
+  echo "  FEISHU_BOT_NAME: \$bot_name"
+  echo "  FEISHU_BOT_AVATAR: \$bot_avatar"
+  echo "  CONFIG_FILE: \$CONFIG_FILE"
+  echo
+}
+
+service_start() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user enable --now "\${APP_NAME}.service"
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    local plist="\$HOME/Library/LaunchAgents/com.\${APP_NAME}.agent.plist"
+    launchctl bootstrap "gui/\$(id -u)" "\$plist" >/dev/null 2>&1 || true
+    launchctl enable "gui/\$(id -u)/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/\$(id -u)/com.\${APP_NAME}.agent"
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+  fi
+}
+
+service_stop() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user disable --now "\${APP_NAME}.service" || true
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    launchctl bootout "gui/\$(id -u)" "com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+  fi
+}
+
+service_restart() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user restart "\${APP_NAME}.service"
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    launchctl kickstart -k "gui/\$(id -u)/com.\${APP_NAME}.agent"
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+  fi
+}
+
+service_status() {
+  if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
+    systemctl --user status "\${APP_NAME}.service" --no-pager || true
+  elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
+    launchctl print "gui/\$(id -u)/com.\${APP_NAME}.agent" || true
+  else
+    echo "[WARN] 当前系统不支持自动启动管理命令"
+  fi
+}
+
+show_logs() {
+  if [[ "\$OS" == "linux" ]] && command_exists journalctl; then
+    journalctl --user -u "\${APP_NAME}.service" -n 50 --no-pager || true
+  elif [[ "\$OS" == "darwin" ]]; then
+    echo "== stdout =="
+    tail -n 50 "$INSTALL_ROOT/\${APP_NAME}.log" 2>/dev/null || true
+    echo "== stderr =="
+    tail -n 50 "$INSTALL_ROOT/\${APP_NAME}.err.log" 2>/dev/null || true
+  else
+    echo "[WARN] 当前系统不支持日志命令"
+  fi
+}
+
+menu() {
+  while true; do
+    echo
+    echo "==============================="
+    echo "  OpenClow Manager"
+    echo "==============================="
+    echo "1) 查看当前配置"
+    echo "2) 设置飞书配置"
+    echo "3) 启动服务"
+    echo "4) 停止服务"
+    echo "5) 重启服务"
+    echo "6) 查看服务状态"
+    echo "7) 查看最近日志"
+    echo "0) 退出"
+    read -r -p "请选择: " choice
+    case "\$choice" in
+      1) show_config ;;
+      2) configure_feishu ;;
+      3) service_start ;;
+      4) service_stop ;;
+      5) service_restart ;;
+      6) service_status ;;
+      7) show_logs ;;
+      0) exit 0 ;;
+      *) echo "无效选项" ;;
+    esac
+  done
+}
+
+menu
+EOF
+  chmod +x "$INSTALL_ROOT/openclow-manager.sh"
+  ln -sfn "$INSTALL_ROOT/openclow-manager.sh" "$BIN_DIR/openclow-manager"
+}
+
 configure_autostart_linux() {
   local service_dir service_file
   service_dir="$HOME/.config/systemd/user"
@@ -724,6 +906,7 @@ EOF
 
 configure_autostart() {
   write_runner
+  write_manager
   if [[ "$AUTO_START" != "true" ]]; then
     log "AUTO_START=false, skipped autostart setup."
     return
@@ -757,6 +940,7 @@ Install complete.
 
 Quick checks:
   $BIN_DIR/$APP_NAME --help
+  $BIN_DIR/openclow-manager
 EOF
 }
 
