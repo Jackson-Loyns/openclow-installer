@@ -21,8 +21,6 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
 
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
-ASSUME_YES="${ASSUME_YES:-false}"
-CHECK_ONLY="${CHECK_ONLY:-false}"
 PROMPT_FEISHU="${PROMPT_FEISHU:-true}"
 SKIP_DEP_INSTALL="${SKIP_DEP_INSTALL:-false}"
 CHECK_NODE="${CHECK_NODE:-true}"
@@ -86,9 +84,6 @@ Options:
   --config-file <path>               Config file path (default: ~/.config/openclow/config.env)
   --exec-name <name>                 Executable name in package (default: openclow)
   --no-autostart                     Do not enable auto-start service
-  --non-interactive                  No prompts; defaults to check-only unless --yes
-  --yes, -y                          Skip install confirmation and continue install
-  --check-only                       Only run environment checks, do not install
   --prompt-feishu                    Prompt Feishu credentials in terminal (default on)
   --skip-deps                        Do not auto install missing dependencies
   --skip-node-check                  Skip Node.js runtime check/install
@@ -106,7 +101,7 @@ Options:
 Environment variables:
   INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
-  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, ASSUME_YES, CHECK_ONLY
+  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START
   PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
@@ -134,8 +129,6 @@ parse_args() {
       --exec-name) OPENCLOW_EXECUTABLE="$2"; shift 2 ;;
       --no-autostart) AUTO_START="false"; shift ;;
       --non-interactive) NON_INTERACTIVE="true"; shift ;;
-      --yes|-y) ASSUME_YES="true"; shift ;;
-      --check-only) CHECK_ONLY="true"; shift ;;
       --prompt-feishu) PROMPT_FEISHU="true"; shift ;;
       --skip-deps) SKIP_DEP_INSTALL="true"; shift ;;
       --skip-node-check) CHECK_NODE="false"; shift ;;
@@ -334,32 +327,6 @@ preflight_checks() {
   collect_node_status
   collect_python_status
   print_preflight_report
-}
-
-confirm_install_after_checks() {
-  local answer=""
-
-  if [[ "$CHECK_ONLY" == "true" ]]; then
-    return 1
-  fi
-  if [[ "$ASSUME_YES" == "true" ]]; then
-    return 0
-  fi
-  if [[ "$NON_INTERACTIVE" == "true" ]]; then
-    warn "非交互模式默认只检查环境，不会直接安装。加 --yes 才会继续安装。"
-    return 1
-  fi
-  if [[ ! -r /dev/tty ]]; then
-    warn "未检测到可交互终端，默认只执行检查。加 --yes 可直接安装。"
-    return 1
-  fi
-
-  printf '\n'
-  read -r -p "是否继续安装并自动修复环境? [y/N]: " answer < /dev/tty || answer=""
-  case "$answer" in
-    y|Y|yes|YES) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 install_homebrew_if_needed() {
@@ -1536,21 +1503,22 @@ Quick checks:
 EOF
 }
 
-print_check_only_summary() {
-  cat <<EOF
-
-仅完成环境检查，未执行安装。
-
-下一步：
-1) 交互安装（会再次检查并询问）:
-   curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
-2) 非交互直接安装:
-   curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- --non-interactive --yes --feishu-app-id <APP_ID> --feishu-app-secret <APP_SECRET>
-EOF
+launch_manager_after_install() {
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    return
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    return
+  fi
+  if [[ ! -x "$BIN_DIR/openclow-manager" ]]; then
+    warn "openclow-manager not found at $BIN_DIR/openclow-manager"
+    return
+  fi
+  printf '\n[INFO] 正在启动管理界面: openclow-manager\n\n'
+  "$BIN_DIR/openclow-manager" || warn "openclow-manager exited with non-zero status."
 }
 
 main() {
-  local proceed_install="false"
   parse_args "$@"
   normalize_settings
   validate_settings
@@ -1559,17 +1527,8 @@ main() {
   step "检测系统信息"
   detect_platform
 
-  step "执行环境预检查（不会安装）"
+  step "执行环境预检查（随后自动安装）"
   preflight_checks
-
-  if confirm_install_after_checks; then
-    proceed_install="true"
-  fi
-
-  if [[ "$proceed_install" != "true" ]]; then
-    print_check_only_summary
-    return 0
-  fi
 
   step "安装/修复基础依赖"
   install_missing_deps
@@ -1593,6 +1552,7 @@ main() {
 
   step "安装完成"
   print_summary
+  launch_manager_after_install
 }
 
 main "$@"

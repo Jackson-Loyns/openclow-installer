@@ -76,15 +76,11 @@
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-这个命令现在默认是：
-- 先做完整环境检查（会显示检查过程）
-- 然后询问你是否继续安装（不会直接安装）
-
-如果你要非交互直接安装（例如远程脚本），用：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- --non-interactive --yes --feishu-app-id <APP_ID> --feishu-app-secret <APP_SECRET>
-```
+这个命令会自动完成：
+- 检查环境（会显示检查过程）
+- 自动安装 OpenClow
+- 提示输入飞书配置
+- 生成并自动打开 `openclow-manager`
 
 ## 3. 配置文件位置
 
