@@ -763,11 +763,12 @@ if [[ -t 1 ]]; then
   C_YELLOW="\$(printf '\033[33m')"
   C_RED="\$(printf '\033[31m')"
   C_WHITE="\$(printf '\033[37m')"
+  C_MAGENTA="\$(printf '\033[35m')"
   C_BOLD="\$(printf '\033[1m')"
   C_DIM="\$(printf '\033[2m')"
   C_RESET="\$(printf '\033[0m')"
 else
-  C_CYAN=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_WHITE=""; C_BOLD=""; C_DIM=""; C_RESET=""
+  C_CYAN=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_WHITE=""; C_MAGENTA=""; C_BOLD=""; C_DIM=""; C_RESET=""
 fi
 
 press_enter() {
@@ -786,9 +787,14 @@ read_key() {
 
 render_header() {
   clear || true
-  echo -e "\${C_CYAN}╔══════════════════════════════════════════════════════════════╗\${C_RESET}"
-  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE}🦞 OPENCLOW MANAGER\${C_RESET}  \${C_DIM}Coding Helper 本地管理面板\${C_RESET}        \${C_CYAN}║\${C_RESET}"
-  echo -e "\${C_CYAN}╚══════════════════════════════════════════════════════════════╝\${C_RESET}"
+  echo -e "\${C_CYAN}╔══════════════════════════════════════════════════════════════════════╗\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE} ██████   ██████  ███████ ███    ██  ██████  ██████  ██████ \${C_RESET} \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE}██      ██    ██ ██      ████   ██ ██      ██    ██ ██   ██\${C_RESET} \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE}██      ██    ██ █████   ██ ██  ██ ██      ████████ ██████ \${C_RESET} \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE}██      ██    ██ ██      ██  ██ ██ ██      ██    ██ ██   ██\${C_RESET} \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_WHITE} ██████   ██████  ███████ ██   ████  ██████ ██    ██ ██   ██\${C_RESET} \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}║\${C_RESET}  \${C_BOLD}\${C_MAGENTA}🦞 OPENCLOW MANAGER\${C_RESET}  \${C_DIM}Coding Helper 本地管理面板\${C_RESET}                  \${C_CYAN}║\${C_RESET}"
+  echo -e "\${C_CYAN}╚══════════════════════════════════════════════════════════════════════╝\${C_RESET}"
   echo -e "\${C_DIM}安装目录: \$INSTALL_ROOT\${C_RESET}"
   echo -e "\${C_DIM}配置文件: \$CONFIG_FILE\${C_RESET}"
   echo
@@ -924,23 +930,39 @@ autostart_state_text() {
   esac
 }
 
+runtime_node() {
+  if command_exists node; then
+    node -v 2>/dev/null || echo "unknown"
+  else
+    echo "未安装"
+  fi
+}
+
+runtime_python() {
+  if command_exists python3; then
+    python3 --version 2>/dev/null | awk '{print \$2}'
+  else
+    echo "未安装"
+  fi
+}
+
 render_status_panel() {
   local app_id bot_name
   app_id="\$(read_cfg FEISHU_APP_ID)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
   [[ -n "\$bot_name" ]] || bot_name="OpenClow Bot"
-  echo -e "\${C_CYAN}┌────────────────────── 当前状态 ──────────────────────┐\${C_RESET}"
-  echo -e "\${C_CYAN}│\${C_RESET} 服务状态: \$(service_state_text)   自启动: \$(autostart_state_text)"
-  echo -e "\${C_CYAN}│\${C_RESET} 飞书应用: \${C_BOLD}\${app_id:-未配置}\${C_RESET}"
-  echo -e "\${C_CYAN}│\${C_RESET} 机器人名: \${bot_name}"
-  echo -e "\${C_CYAN}└───────────────────────────────────────────────────────┘\${C_RESET}"
+  echo -e "\${C_CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━ 当前状态 ━━━━━━━━━━━━━━━━━━━━━━━━┓\${C_RESET}"
+  echo -e "\${C_CYAN}┃\${C_RESET} 服务状态: \$(service_state_text)   自启动: \$(autostart_state_text)"
+  echo -e "\${C_CYAN}┃\${C_RESET} 飞书应用: \${C_BOLD}\${app_id:-未配置}\${C_RESET}   机器人: \${bot_name}"
+  echo -e "\${C_CYAN}┃\${C_RESET} Node: \${C_BOLD}\$(runtime_node)\${C_RESET}   Python: \${C_BOLD}\$(runtime_python)\${C_RESET}"
+  echo -e "\${C_CYAN}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\${C_RESET}"
   echo
 }
 
 render_menu_panel() {
   local selected="\$1"
   local i idx label
-  echo -e "\${C_CYAN}┌──────────────────────── 主菜单 ───────────────────────┐\${C_RESET}"
+  echo -e "\${C_CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━ 主菜单 ━━━━━━━━━━━━━━━━━━━━━━━━┓\${C_RESET}"
   for i in "\${!MENU_ITEMS[@]}"; do
     label="\${MENU_ITEMS[\$i]}"
     if [[ "\$i" -eq 10 ]]; then
@@ -949,13 +971,13 @@ render_menu_panel() {
       idx=\$((i + 1))
     fi
     if [[ "\$i" -eq "\$selected" ]]; then
-      echo -e "\${C_CYAN}│\${C_RESET} \${C_GREEN}\${C_BOLD}> \${idx}. \${label}\${C_RESET}"
+      echo -e "\${C_CYAN}┃\${C_RESET} \${C_GREEN}\${C_BOLD}❯ [\${idx}] \${label}\${C_RESET}"
     else
-      echo -e "\${C_CYAN}│\${C_RESET}   \${idx}. \${label}"
+      echo -e "\${C_CYAN}┃\${C_RESET}   [\${idx}] \${label}"
     fi
   done
-  echo -e "\${C_CYAN}└───────────────────────────────────────────────────────┘\${C_RESET}"
-  echo -e "\${C_DIM}操作: ↑↓ 选择 | Enter 确认 | q 退出\${C_RESET}"
+  echo -e "\${C_CYAN}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\${C_RESET}"
+  echo -e "\${C_DIM}操作: ↑↓ 选择 | Enter 确认 | 数字直达 | q 退出\${C_RESET}"
 }
 
 ensure_service_definition() {
