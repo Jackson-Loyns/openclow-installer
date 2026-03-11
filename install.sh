@@ -534,40 +534,13 @@ download_and_install_binary() {
   ensure_path_export
 }
 
-prompt_value() {
-  local var_name="$1"
-  local prompt_text="$2"
-  local is_secret="${3:-false}"
-  local current_val="${!var_name:-}"
-  local input_val
-
-  if [[ -n "$current_val" ]]; then
-    return
-  fi
-  if [[ "$NON_INTERACTIVE" == "true" ]]; then
-    return
-  fi
-
-  if [[ "$is_secret" == "true" ]]; then
-    read -r -s -p "$prompt_text: " input_val
-    printf '\n'
-  else
-    read -r -p "$prompt_text: " input_val
-  fi
-  printf -v "$var_name" '%s' "$input_val"
-}
-
 write_config() {
   umask 077
   mkdir -p "$CONFIG_DIR"
 
-  prompt_value FEISHU_APP_ID "请输入飞书 FEISHU_APP_ID"
-  prompt_value FEISHU_APP_SECRET "请输入飞书 FEISHU_APP_SECRET" true
-  prompt_value FEISHU_ENCRYPT_KEY "请输入飞书 FEISHU_ENCRYPT_KEY" true
-  prompt_value FEISHU_VERIFICATION_TOKEN "请输入飞书 FEISHU_VERIFICATION_TOKEN" true
-
   cat > "$CONFIG_FILE" <<EOF
 # ${APP_NAME} runtime environment
+# Optional: fill Feishu values later if needed.
 FEISHU_APP_ID=${FEISHU_APP_ID}
 FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
 FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY}
@@ -576,6 +549,9 @@ OPENCLOW_HOME=${INSTALL_ROOT}
 EOF
   chmod 600 "$CONFIG_FILE"
   log "Wrote config: $CONFIG_FILE"
+  if [[ -z "$FEISHU_APP_ID$FEISHU_APP_SECRET$FEISHU_ENCRYPT_KEY$FEISHU_VERIFICATION_TOKEN" ]]; then
+    warn "Feishu values are empty. You can update them later in $CONFIG_FILE"
+  fi
 }
 
 write_runner() {
