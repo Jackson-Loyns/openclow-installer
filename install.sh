@@ -17,6 +17,10 @@ CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 SKIP_DEP_INSTALL="${SKIP_DEP_INSTALL:-false}"
+CHECK_NODE="${CHECK_NODE:-true}"
+CHECK_PYTHON="${CHECK_PYTHON:-true}"
+MIN_NODE_VERSION="${MIN_NODE_VERSION:-22}"
+MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION:-3.9}"
 
 FEISHU_APP_ID="${FEISHU_APP_ID:-}"
 FEISHU_APP_SECRET="${FEISHU_APP_SECRET:-}"
@@ -32,6 +36,12 @@ RESOLVED_DOWNLOAD_URL=""
 log() { printf '[INFO] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
 err() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+
+print_lobster_banner() {
+  cat <<'EOF'
+🦞 OpenClow Installer
+EOF
+}
 
 usage() {
   cat <<'EOF'
@@ -51,6 +61,10 @@ Options:
   --no-autostart                     Do not enable auto-start service
   --non-interactive                  No prompts; rely on flags/env only
   --skip-deps                        Do not auto install missing dependencies
+  --skip-node-check                  Skip Node.js runtime check/install
+  --skip-python-check                Skip Python runtime check/install
+  --min-node-version <major>         Minimum Node major version (default: 22)
+  --min-python-version <major.minor> Minimum Python version (default: 3.9)
   --feishu-app-id <value>            Feishu App ID
   --feishu-app-secret <value>        Feishu App Secret
   --feishu-encrypt-key <value>       Feishu Encrypt Key
@@ -60,6 +74,7 @@ Options:
 Environment variables:
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
   INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, SKIP_DEP_INSTALL
+  CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
 EOF
 }
@@ -81,6 +96,10 @@ parse_args() {
       --no-autostart) AUTO_START="false"; shift ;;
       --non-interactive) NON_INTERACTIVE="true"; shift ;;
       --skip-deps) SKIP_DEP_INSTALL="true"; shift ;;
+      --skip-node-check) CHECK_NODE="false"; shift ;;
+      --skip-python-check) CHECK_PYTHON="false"; shift ;;
+      --min-node-version) MIN_NODE_VERSION="$2"; shift 2 ;;
+      --min-python-version) MIN_PYTHON_VERSION="$2"; shift 2 ;;
       --feishu-app-id) FEISHU_APP_ID="$2"; shift 2 ;;
       --feishu-app-secret) FEISHU_APP_SECRET="$2"; shift 2 ;;
       --feishu-encrypt-key) FEISHU_ENCRYPT_KEY="$2"; shift 2 ;;
@@ -95,6 +114,11 @@ parse_args() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+validate_settings() {
+  [[ "$MIN_NODE_VERSION" =~ ^[0-9]+$ ]] || err "--min-node-version must be an integer, got: $MIN_NODE_VERSION"
+  [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
 }
 
 run_privileged() {
@@ -237,6 +261,167 @@ install_missing_deps() {
       err "Unsupported package manager: $PKG_MANAGER"
       ;;
   esac
+}
+
+python_version_ge() {
+  local current="$1"
+  local required="$2"
+  awk -v c="$current" -v r="$required" '
+    BEGIN {
+      split(c, C, ".")
+      split(r, R, ".")
+      c1 = C[1] + 0
+      c2 = C[2] + 0
+      r1 = R[1] + 0
+      r2 = R[2] + 0
+      if (c1 > r1 || (c1 == r1 && c2 >= r2)) exit 0
+      exit 1
+    }
+  '
+}
+
+install_node_runtime() {
+  detect_package_manager
+  if [[ "$OS" == "darwin" ]]; then
+    install_homebrew_if_needed
+    brew install "node@${MIN_NODE_VERSION}" || brew install node
+    brew link --overwrite --force "node@${MIN_NODE_VERSION}" >/dev/null 2>&1 || true
+    return
+  fi
+
+  [[ -n "$PKG_MANAGER" ]] || err "No supported package manager found for Node.js install."
+
+  case "$PKG_MANAGER" in
+    apt-get)
+      run_privileged apt-get update -y
+      curl -fsSL "https://deb.nodesource.com/setup_${MIN_NODE_VERSION}.x" | run_privileged bash -
+      run_privileged apt-get install -y nodejs
+      ;;
+    dnf|yum)
+      curl -fsSL "https://rpm.nodesource.com/setup_${MIN_NODE_VERSION}.x" | run_privileged bash -
+      run_privileged "$PKG_MANAGER" install -y nodejs
+      ;;
+    pacman)
+      run_privileged pacman -Sy --noconfirm nodejs npm
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive install nodejs npm
+      ;;
+    apk)
+      run_privileged apk add nodejs npm
+      ;;
+    *)
+      err "Unsupported package manager for Node.js install: $PKG_MANAGER"
+      ;;
+  esac
+}
+
+install_python_runtime() {
+  detect_package_manager
+  if [[ "$OS" == "darwin" ]]; then
+    install_homebrew_if_needed
+    brew install python
+    return
+  fi
+
+  [[ -n "$PKG_MANAGER" ]] || err "No supported package manager found for Python install."
+
+  case "$PKG_MANAGER" in
+    apt-get)
+      run_privileged apt-get update -y
+      run_privileged apt-get install -y python3 python3-pip
+      ;;
+    dnf|yum)
+      run_privileged "$PKG_MANAGER" install -y python3 python3-pip
+      ;;
+    pacman)
+      run_privileged pacman -Sy --noconfirm python python-pip
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive install python3 python3-pip
+      ;;
+    apk)
+      run_privileged apk add python3 py3-pip
+      ;;
+    *)
+      err "Unsupported package manager for Python install: $PKG_MANAGER"
+      ;;
+  esac
+}
+
+ensure_node_runtime() {
+  local current_major
+  if [[ "$CHECK_NODE" != "true" ]]; then
+    log "CHECK_NODE=false, skip Node.js check."
+    return
+  fi
+
+  if ! command_exists node; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "Node.js is required (>=${MIN_NODE_VERSION}) but missing."
+    fi
+    log "Node.js not found, installing..."
+    install_node_runtime
+  fi
+
+  command_exists node || err "Node.js install failed."
+  current_major="$(node -v | sed 's/^v//' | cut -d. -f1)"
+  if [[ -z "$current_major" || "$current_major" -lt "$MIN_NODE_VERSION" ]]; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "Node.js version is too low. Need >=${MIN_NODE_VERSION}, current: $(node -v 2>/dev/null || echo unknown)."
+    fi
+    log "Node.js version too low, upgrading..."
+    install_node_runtime
+    current_major="$(node -v | sed 's/^v//' | cut -d. -f1)"
+  fi
+
+  if [[ -z "$current_major" || "$current_major" -lt "$MIN_NODE_VERSION" ]]; then
+    err "Node.js version check failed. Need >=${MIN_NODE_VERSION}, current: $(node -v 2>/dev/null || echo unknown)."
+  fi
+
+  if ! command_exists npm; then
+    err "npm is missing after Node.js install."
+  fi
+  log "Node.js OK: $(node -v), npm: $(npm -v)"
+}
+
+ensure_python_runtime() {
+  local current_py
+  if [[ "$CHECK_PYTHON" != "true" ]]; then
+    log "CHECK_PYTHON=false, skip Python check."
+    return
+  fi
+
+  if ! command_exists python3; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "Python3 is required (>=${MIN_PYTHON_VERSION}) but missing."
+    fi
+    log "Python3 not found, installing..."
+    install_python_runtime
+  fi
+
+  command_exists python3 || err "Python3 install failed."
+  current_py="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+  if [[ -z "$current_py" ]] || ! python_version_ge "$current_py" "$MIN_PYTHON_VERSION"; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "Python version is too low. Need >=${MIN_PYTHON_VERSION}, current: ${current_py:-unknown}."
+    fi
+    log "Python version too low, upgrading..."
+    install_python_runtime
+    current_py="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$current_py" ]] || ! python_version_ge "$current_py" "$MIN_PYTHON_VERSION"; then
+    err "Python version check failed. Need >=${MIN_PYTHON_VERSION}, current: ${current_py:-unknown}."
+  fi
+
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
+      err "pip for Python3 is missing."
+    fi
+    install_python_runtime
+  fi
+  log "Python OK: $(python3 --version 2>&1), pip: $(python3 -m pip --version | awk '{print $2}')"
 }
 
 fetch_latest_version() {
@@ -501,6 +686,9 @@ configure_autostart() {
 }
 
 print_summary() {
+  local node_info python_info
+  node_info="$(command -v node >/dev/null 2>&1 && node -v || echo skipped)"
+  python_info="$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo skipped)"
   cat <<EOF
 
 Install complete.
@@ -513,6 +701,8 @@ Install complete.
 - Repo: $OPENCLOW_REPO
 - Version: ${RESOLVED_VERSION:-custom-url}
 - Download URL: $RESOLVED_DOWNLOAD_URL
+- Node.js: $node_info
+- Python: $python_info
 
 Quick checks:
   $BIN_DIR/$APP_NAME --help
@@ -521,8 +711,12 @@ EOF
 
 main() {
   parse_args "$@"
+  validate_settings
+  print_lobster_banner
   detect_platform
   install_missing_deps
+  ensure_node_runtime
+  ensure_python_runtime
   resolve_download_url
   download_and_install_binary
   write_config

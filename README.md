@@ -1,33 +1,45 @@
-# OpenClow 一键安装脚本（macOS / Linux）
+# OpenClow Installer (macOS / Linux)
 
-这个仓库提供 `install.sh`，用于自动完成：
+```text
+🦞  OpenClow Installer
+```
 
-- 系统与架构检测（仅 `macOS` / `Linux`，仅 `amd64` / `arm64`）
-- 依赖检查与自动安装（`curl`、`tar`、`grep`、`sed`、`awk`）
-- 从 GitHub Release 下载 OpenClow 并安装到本地
-- 写入飞书基础配置
-- 配置开机自启动
+一键安装脚本：自动检查环境、安装依赖、下载 OpenClow、写入飞书配置、配置自启动。
+
+仓库地址：
+- [GitHub - Jackson-Loyns/openclow-installer](https://github.com/Jackson-Loyns/openclow-installer)
+
+## 为什么这版更完整
+
+- 增加了 `Node.js` 版本检查与自动安装（默认要求 `22+`）
+- 增加了 `Python3` 版本检查与自动安装（默认要求 `3.9+`）
+- 仍保留基础依赖自动安装（`curl`、`tar`、`grep`、`sed`、`awk`）
+- 支持无交互部署（CI / 批量机器）
+- 自启动支持：
   - Linux: `systemd --user`
   - macOS: `LaunchAgent`
 
-## 1. 推荐的发布方式（让用户可以 `curl` 安装）
+## 脚本执行流程
 
-1. 把本仓库推送到 GitHub（当前示例仓库：`Jackson-Loyns/openclow-installer`）。
-2. 使用 Raw 地址供用户安装：
+1. 解析参数与环境变量
+2. 检测 OS/ARCH（仅 `Linux/macOS` + `amd64/arm64`）
+3. 安装基础命令依赖
+4. 检查并安装 Node.js / npm（默认 Node `22+`）
+5. 检查并安装 Python3 / pip（默认 Python `3.9+`）
+6. 解析并下载 OpenClow 二进制
+7. 安装到 `~/.openclow`，软链到 `~/.local/bin/openclow`
+8. 写飞书配置文件 `~/.config/openclow/config.env`
+9. 配置开机自启动
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash
-```
+## 快速开始（curl 方式）
 
-## 2. 用户安装命令示例
-
-### 2.1 交互式安装（会提示输入飞书配置）
+交互式安装（会提示输入飞书参数）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-### 2.2 无交互安装（CI/批量部署）
+无交互安装：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- \
@@ -39,65 +51,68 @@ curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/ma
   --feishu-verification-token "xxx"
 ```
 
-### 2.3 指定自定义下载地址（当 Release 命名不一致时）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s -- \
-  --download-url "https://github.com/your-org/openclow/releases/download/v1.2.3/openclow_linux_amd64.tar.gz"
-```
-
-## 3. 参数说明
+## 常用参数
 
 ```text
 --repo <owner/repo>                  GitHub 仓库（默认 openclow/openclow）
 --version <tag|latest>               版本（默认 latest）
---download-url <url>                 直接下载地址（最高优先级）
+--download-url <url>                 自定义下载地址（最高优先级）
 --install-root <path>                安装目录（默认 ~/.openclow）
 --bin-dir <path>                     软链目录（默认 ~/.local/bin）
 --config-file <path>                 配置文件（默认 ~/.config/openclow/config.env）
---exec-name <name>                   包内可执行文件名（默认 openclow）
+--exec-name <name>                   包内可执行名（默认 openclow）
 --no-autostart                       不开启自启动
 --non-interactive                    非交互模式
---skip-deps                          跳过依赖自动安装
+--skip-deps                          跳过基础依赖安装
+--skip-node-check                    跳过 Node.js 检查
+--skip-python-check                  跳过 Python 检查
+--min-node-version <major>           最小 Node 主版本（默认 22）
+--min-python-version <major.minor>   最小 Python 版本（默认 3.9）
 --feishu-app-id <value>              飞书 App ID
 --feishu-app-secret <value>          飞书 App Secret
 --feishu-encrypt-key <value>         飞书 Encrypt Key
 --feishu-verification-token <value>  飞书 Verification Token
 ```
 
-## 4. 安装后文件位置
+## 目录与文件
 
-- 程序主目录：`~/.openclow`
-- 可执行文件：`~/.openclow/bin/openclow`
-- 全局命令软链：`~/.local/bin/openclow`
-- 配置文件：`~/.config/openclow/config.env`
+- 程序目录：`~/.openclow`
+- 启动脚本：`~/.openclow/run-openclow.sh`
+- 二进制：`~/.openclow/bin/openclow`
+- 软链：`~/.local/bin/openclow`
+- 配置：`~/.config/openclow/config.env`
 
-## 5. 自启动说明
+## 自启动管理
 
-### Linux
-
-- 服务名：`openclow.service`
-- 管理命令：
+Linux:
 
 ```bash
 systemctl --user status openclow
 systemctl --user restart openclow
+systemctl --user stop openclow
 ```
 
-### macOS
+macOS:
 
-- LaunchAgent: `~/Library/LaunchAgents/com.openclow.agent.plist`
-- 日志：
-  - `~/.openclow/openclow.log`
-  - `~/.openclow/openclow.err.log`
+```bash
+launchctl print gui/$(id -u)/com.openclow.agent
+launchctl kickstart -k gui/$(id -u)/com.openclow.agent
+```
 
-## 6. 维护者发布建议
+## 龙虾元素
 
-建议你的 OpenClow Release 资产文件命名包含 OS/ARCH 信息，例如：
+脚本执行时会输出：
 
-- `openclow_linux_amd64.tar.gz`
-- `openclow_linux_arm64.tar.gz`
-- `openclow_darwin_amd64.tar.gz`
-- `openclow_darwin_arm64.tar.gz`
+```text
+🦞 OpenClow Installer
+```
 
-这样安装脚本可以自动匹配下载地址，不需要用户额外传 `--download-url`。
+如果你需要，我可以再给你做一版“龙虾 ASCII Banner + 进度条动画”终端主题版本。
+
+## 依赖依据（联网检索）
+
+- OpenClaw 官方文档（安装命令与 Node 要求线索）：
+  - [OpenClaw Docs](https://docs.openclaw.ai/introduction/getting-started/installation)
+  - [OpenClaw GitHub](https://github.com/bestK/openclaw)
+
+说明：官方文档重点强调 Node 环境；本安装器在此基础上补充了 Python 检查，便于后续脚本化运维与插件扩展。
