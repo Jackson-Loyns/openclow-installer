@@ -27,6 +27,8 @@ FEISHU_APP_ID="${FEISHU_APP_ID:-}"
 FEISHU_APP_SECRET="${FEISHU_APP_SECRET:-}"
 FEISHU_ENCRYPT_KEY="${FEISHU_ENCRYPT_KEY:-}"
 FEISHU_VERIFICATION_TOKEN="${FEISHU_VERIFICATION_TOKEN:-}"
+FEISHU_BOT_NAME="${FEISHU_BOT_NAME:-OpenClow Bot}"
+FEISHU_BOT_AVATAR="${FEISHU_BOT_AVATAR:-}"
 
 OS=""
 ARCH=""
@@ -71,6 +73,8 @@ Options:
   --feishu-app-secret <value>        Feishu App Secret
   --feishu-encrypt-key <value>       Feishu Encrypt Key
   --feishu-verification-token <value> Feishu Verification Token
+  --feishu-bot-name <value>          Feishu Bot Name
+  --feishu-bot-avatar <value>        Feishu Bot Avatar URL or local file path
   -h, --help                         Show help
 
 Environment variables:
@@ -78,6 +82,7 @@ Environment variables:
   INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START, NON_INTERACTIVE, PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
+  FEISHU_BOT_NAME, FEISHU_BOT_AVATAR
 EOF
 }
 
@@ -107,6 +112,8 @@ parse_args() {
       --feishu-app-secret) FEISHU_APP_SECRET="$2"; shift 2 ;;
       --feishu-encrypt-key) FEISHU_ENCRYPT_KEY="$2"; shift 2 ;;
       --feishu-verification-token) FEISHU_VERIFICATION_TOKEN="$2"; shift 2 ;;
+      --feishu-bot-name) FEISHU_BOT_NAME="$2"; shift 2 ;;
+      --feishu-bot-avatar) FEISHU_BOT_AVATAR="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *)
         err "Unknown option: $1"
@@ -586,6 +593,8 @@ hydrate_feishu_from_existing_config() {
   [[ -n "$FEISHU_APP_SECRET" ]] || FEISHU_APP_SECRET="$(read_config_value FEISHU_APP_SECRET)"
   [[ -n "$FEISHU_ENCRYPT_KEY" ]] || FEISHU_ENCRYPT_KEY="$(read_config_value FEISHU_ENCRYPT_KEY)"
   [[ -n "$FEISHU_VERIFICATION_TOKEN" ]] || FEISHU_VERIFICATION_TOKEN="$(read_config_value FEISHU_VERIFICATION_TOKEN)"
+  [[ -n "$FEISHU_BOT_NAME" ]] || FEISHU_BOT_NAME="$(read_config_value FEISHU_BOT_NAME)"
+  [[ -n "$FEISHU_BOT_AVATAR" ]] || FEISHU_BOT_AVATAR="$(read_config_value FEISHU_BOT_AVATAR)"
 }
 
 write_config() {
@@ -606,6 +615,8 @@ FEISHU_APP_ID=${FEISHU_APP_ID}
 FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
 FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY}
 FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN}
+FEISHU_BOT_NAME=${FEISHU_BOT_NAME}
+FEISHU_BOT_AVATAR=${FEISHU_BOT_AVATAR}
 OPENCLOW_HOME=${INSTALL_ROOT}
 EOF
   chmod 600 "$CONFIG_FILE"
