@@ -109,6 +109,13 @@ curl -fsSL "https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/m
 openclow-manager
 ```
 
+如果提示 `command not found`：
+
+```bash
+source ~/.zshrc
+openclow-manager
+```
+
 或者前台直接启动：
 
 ```bash
@@ -130,6 +137,12 @@ openclow-manager
 - `↑ / ↓` 选择菜单
 - `Enter` 执行操作
 - `q` 退出
+
+如果终端里方向键菜单不响应，可用兼容模式：
+
+```bash
+OPENCLOW_MANAGER_SIMPLE=1 ~/.local/bin/openclow-manager
+```
 
 官方参考：
 - OpenClaw 飞书文档（中文）：https://docs.openclaw.ai/zh-CN/channels/feishu

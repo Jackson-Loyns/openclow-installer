@@ -560,38 +560,29 @@ resolve_download_url() {
 }
 
 ensure_path_export() {
-  local rc updated runtime_export npm_global_export bin_export
+  local rc any_updated runtime_export npm_global_export bin_export
   runtime_export="export PATH=\"$RUNTIME_BIN_DIR:\$PATH\""
   npm_global_export="export PATH=\"$NPM_GLOBAL_BIN_DIR:\$PATH\""
   bin_export="export PATH=\"$BIN_DIR:\$PATH\""
-  for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
-    updated="false"
-    [[ -f "$rc" ]] || continue
+  any_updated="false"
+  for rc in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.profile"; do
+    [[ -f "$rc" ]] || touch "$rc"
     if [[ -d "$RUNTIME_BIN_DIR" ]] && ! grep -q "$RUNTIME_BIN_DIR" "$rc"; then
       printf '\n%s\n' "$runtime_export" >> "$rc"
-      updated="true"
+      any_updated="true"
     fi
     if [[ -d "$NPM_GLOBAL_BIN_DIR" ]] && ! grep -q "$NPM_GLOBAL_BIN_DIR" "$rc"; then
       printf '\n%s\n' "$npm_global_export" >> "$rc"
-      updated="true"
+      any_updated="true"
     fi
     if ! grep -q "$BIN_DIR" "$rc"; then
       printf '\n%s\n' "$bin_export" >> "$rc"
-      updated="true"
-    fi
-    if [[ "$updated" == "true" ]]; then
-      log "Updated PATH export in $rc"
-      return
+      any_updated="true"
     fi
   done
 
-  if [[ ! -f "$HOME/.profile" ]]; then
-    {
-      printf '%s\n' "$runtime_export"
-      printf '%s\n' "$npm_global_export"
-      printf '%s\n' "$bin_export"
-    } > "$HOME/.profile"
-    log "Created $HOME/.profile with PATH exports"
+  if [[ "$any_updated" == "true" ]]; then
+    log "Updated PATH export in shell profiles (.zshrc/.zprofile/.bashrc/.profile)"
   fi
 }
 
@@ -1292,20 +1283,21 @@ menu_interactive() {
     render_status_panel
     render_menu_panel "\$selected"
     key="\$(read_key || true)"
+    [[ -n "\$key" ]] || return 1
     case "\$key" in
       \$'\\e[A') selected=\$((selected - 1)); [[ "\$selected" -lt 0 ]] && selected="\$max_index" ;;
       \$'\\e[B') selected=\$((selected + 1)); [[ "\$selected" -gt "\$max_index" ]] && selected=0 ;;
       \$'\\n'|\$'\\r') run_menu_action "\$selected"; press_enter ;;
-      1) selected=0 ;;
-      2) selected=1 ;;
-      3) selected=2 ;;
-      4) selected=3 ;;
-      5) selected=4 ;;
-      6) selected=5 ;;
-      7) selected=6 ;;
-      8) selected=7 ;;
-      9) selected=8 ;;
-      0) selected=10 ;;
+      1) run_menu_action 0; press_enter ;;
+      2) run_menu_action 1; press_enter ;;
+      3) run_menu_action 2; press_enter ;;
+      4) run_menu_action 3; press_enter ;;
+      5) run_menu_action 4; press_enter ;;
+      6) run_menu_action 5; press_enter ;;
+      7) run_menu_action 6; press_enter ;;
+      8) run_menu_action 7; press_enter ;;
+      9) run_menu_action 8; press_enter ;;
+      0) run_menu_action 10 ;;
       q|Q) exit 0 ;;
       *) ;;
     esac
@@ -1346,8 +1338,12 @@ menu_basic() {
 }
 
 menu() {
+  if [[ "\${OPENCLOW_MANAGER_SIMPLE:-}" == "1" ]]; then
+    menu_basic
+    return
+  fi
   if [[ -t 0 && -t 1 ]]; then
-    menu_interactive
+    menu_interactive || menu_basic
   else
     menu_basic
   fi
@@ -1413,10 +1409,11 @@ configure_autostart() {
 }
 
 print_summary() {
-  local node_info python_info start_cmd
+  local node_info python_info start_cmd shell_reload_cmd
   node_info="$(command -v node >/dev/null 2>&1 && node -v || echo skipped)"
   python_info="$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo skipped)"
   start_cmd="$INSTALL_ROOT/run-openclow.sh"
+  shell_reload_cmd="source ~/.zshrc"
   cat <<EOF
 
 Install complete.
@@ -1439,6 +1436,10 @@ Run commands:
   菜单管理（推荐）:
     $BIN_DIR/openclow-manager
     然后选择 [3] 启动并开启自启动
+
+如果提示 command not found:
+  $shell_reload_cmd
+  $BIN_DIR/openclow-manager
 
 Quick checks:
   $BIN_DIR/$APP_NAME --help
