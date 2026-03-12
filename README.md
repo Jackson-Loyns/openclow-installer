@@ -74,6 +74,7 @@ openclow-manager
 
 > 执行 `3` 后会自动打开控制台页面。
 > 安装器默认本机网关为 `--auth none`，不需要手动粘贴 token。
+> 执行 `3` 前会自动检查飞书鉴权和应用信息（失败会直接提示原因）。
 
 如果提示 `command not found`：
 
@@ -110,6 +111,10 @@ openclow dashboard
 openclow-manager
 ```
 先选 `2` 再选 `3`，然后回飞书页面点 `Save`。
+如果 `3` 阶段提示鉴权失败，请检查：
+- App ID / App Secret 是否正确
+- 应用是否已发布到当前租户
+- 是否企业自建应用（个人应用能力有限）
 
 2. 手动确认配置可用
 ```bash

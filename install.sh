@@ -1522,6 +1522,81 @@ PY
   fi
 }
 
+probe_feishu_connectivity() {
+  local app_id app_secret payload resp parsed code msg token bot_resp bot_code bot_msg
+  app_id="\$(read_cfg FEISHU_APP_ID)"
+  app_secret="\$(read_cfg FEISHU_APP_SECRET)"
+  [[ -n "\$app_id" ]] || { echo "[ERROR] FEISHU_APP_ID 为空"; return 1; }
+  [[ -n "\$app_secret" ]] || { echo "[ERROR] FEISHU_APP_SECRET 为空"; return 1; }
+  command_exists curl || { echo "[WARN] curl 不存在，跳过飞书连通性检查"; return 0; }
+  command_exists python3 || { echo "[WARN] python3 不存在，跳过飞书连通性检查"; return 0; }
+
+  payload="\$(FEISHU_APP_ID=\"\$app_id\" FEISHU_APP_SECRET=\"\$app_secret\" python3 - <<'PY'
+import json
+import os
+print(json.dumps({"app_id": os.environ.get("FEISHU_APP_ID", ""), "app_secret": os.environ.get("FEISHU_APP_SECRET", "")}))
+PY
+)"
+
+  resp="\$(curl -sS --max-time 20 \\
+    -H 'Content-Type: application/json; charset=utf-8' \\
+    -d "\$payload" \\
+    'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal' || true)"
+
+  parsed="\$(python3 - <<'PY' "\$resp"
+import json
+import sys
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
+try:
+    obj = json.loads(raw) if raw else {}
+except Exception:
+    obj = {}
+code = obj.get("code")
+msg = obj.get("msg", "")
+token = obj.get("tenant_access_token", "")
+print(f"{code if code is not None else ''}\t{msg}\t{token}")
+PY
+)"
+  IFS=$'\t' read -r code msg token <<<"\$parsed"
+
+  if [[ "\$code" != "0" || -z "\$token" ]]; then
+    echo "[ERROR] 飞书鉴权失败：code=\${code:-unknown}, msg=\${msg:-unknown}"
+    echo "请检查："
+    echo "  1) App ID / App Secret 是否正确"
+    echo "  2) 应用是否已发布到当前租户"
+    echo "  3) 是否为企业自建应用（个人应用能力有限）"
+    return 1
+  fi
+
+  bot_resp="\$(curl -sS --max-time 20 \\
+    -H \"Authorization: Bearer \$token\" \\
+    'https://open.feishu.cn/open-apis/bot/v3/info' || true)"
+  parsed="\$(python3 - <<'PY' "\$bot_resp"
+import json
+import sys
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
+try:
+    obj = json.loads(raw) if raw else {}
+except Exception:
+    obj = {}
+code = obj.get("code")
+msg = obj.get("msg", "")
+print(f"{code if code is not None else ''}\t{msg}")
+PY
+)"
+  IFS=$'\t' read -r bot_code bot_msg <<<"\$parsed"
+  if [[ "\$bot_code" != "0" ]]; then
+    echo "[ERROR] 飞书应用信息检查失败：code=\${bot_code:-unknown}, msg=\${bot_msg:-unknown}"
+    echo "请检查："
+    echo "  1) Permissions & Scopes 已添加并发布"
+    echo "  2) 事件已添加 im.message.receive_v1"
+    echo "  3) Events & Callbacks 使用 persistent connection"
+    return 1
+  fi
+
+  echo "[INFO] 飞书连接检查通过（鉴权 + 应用信息）"
+}
+
 configure_feishu() {
   local app_id app_secret encrypt_key verify_token bot_name bot_avatar
   local model_provider modelstudio_api_key choice current_label
@@ -1589,6 +1664,7 @@ configure_feishu() {
   write_cfg_key OPENCLOW_HOME "$INSTALL_ROOT"
   sync_openclaw_runtime_config || true
   ensure_feishu_plugin_enabled || true
+  probe_feishu_connectivity || true
   echo "[INFO] 配置已保存到 \$CONFIG_FILE"
 }
 
@@ -1802,6 +1878,7 @@ launchd_start_service() {
 service_enable_autostart() {
   sync_openclaw_runtime_config || true
   ensure_feishu_plugin_enabled || true
+  probe_feishu_connectivity || return 1
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user enable --now "\$SERVICE_NAME"; then
@@ -1850,6 +1927,7 @@ service_pause() {
 service_resume() {
   sync_openclaw_runtime_config || true
   ensure_feishu_plugin_enabled || true
+  probe_feishu_connectivity || return 1
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user start "\$SERVICE_NAME"; then
@@ -1873,6 +1951,7 @@ service_resume() {
 service_restart() {
   sync_openclaw_runtime_config || true
   ensure_feishu_plugin_enabled || true
+  probe_feishu_connectivity || return 1
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user restart "\$SERVICE_NAME"; then
