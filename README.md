@@ -6,7 +6,7 @@
 
 ## 1) 先在飞书开放平台完成应用配置
 
-平台地址：`https://open.feishu.cn`
+平台地址：[飞书开放平台](https://open.feishu.cn)
 
 按顺序操作：
 
@@ -69,6 +69,8 @@
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
+安装脚本地址（可点击）：[openclow-installer/install.sh](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh)
+
 安装器会自动完成：
 - 环境检查（Node/Python/git）并显示检查过程
 - 自动安装缺失环境（仅 macOS）
@@ -80,7 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/ma
 ## 3) 模型厂商配置（默认阿里百炼）
 
 阿里百炼入口（Coding Plan）：
-`https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail`
+[阿里百炼 Coding Plan 控制台](https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail)
 
 为什么推荐：
 - 一个 API Key 接多模型
