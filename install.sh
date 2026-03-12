@@ -911,7 +911,10 @@ mask_secret() {
 read_cfg() {
   local key="\$1"
   [[ -f "\$CONFIG_FILE" ]] || return 0
-  grep -E "^\\\${key}=" "\$CONFIG_FILE" | tail -n1 | sed "s/^\\\${key}=//" || true
+  awk -v k="\$key" -F '=' '
+    \$1 == k { val = substr(\$0, index(\$0, "=") + 1) }
+    END { if (val != "") print val }
+  ' "\$CONFIG_FILE" | tr -d "\r"
 }
 
 write_cfg_key() {
