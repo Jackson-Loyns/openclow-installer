@@ -39,6 +39,8 @@ FEISHU_ENCRYPT_KEY="${FEISHU_ENCRYPT_KEY:-}"
 FEISHU_VERIFICATION_TOKEN="${FEISHU_VERIFICATION_TOKEN:-}"
 FEISHU_BOT_NAME="${FEISHU_BOT_NAME:-OpenClow Bot}"
 FEISHU_BOT_AVATAR="${FEISHU_BOT_AVATAR:-}"
+MODEL_PROVIDER="${MODEL_PROVIDER:-}"
+MODELSTUDIO_API_KEY="${MODELSTUDIO_API_KEY:-}"
 
 OS=""
 ARCH=""
@@ -108,6 +110,8 @@ Options:
   --feishu-verification-token <value> Feishu Verification Token
   --feishu-bot-name <value>          Feishu Bot Name
   --feishu-bot-avatar <value>        Feishu Bot Avatar URL or local file path
+  --model-provider <aliyun-bailian|default>  Model provider preset
+  --modelstudio-api-key <value>      Aliyun Model Studio (Bailian) API Key
   -h, --help                         Show help
 
 Environment variables:
@@ -118,6 +122,7 @@ Environment variables:
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
   FEISHU_BOT_NAME, FEISHU_BOT_AVATAR
+  MODEL_PROVIDER, MODELSTUDIO_API_KEY
 EOF
 }
 
@@ -155,6 +160,8 @@ parse_args() {
       --feishu-verification-token) FEISHU_VERIFICATION_TOKEN="$2"; shift 2 ;;
       --feishu-bot-name) FEISHU_BOT_NAME="$2"; shift 2 ;;
       --feishu-bot-avatar) FEISHU_BOT_AVATAR="$2"; shift 2 ;;
+      --model-provider) MODEL_PROVIDER="$2"; shift 2 ;;
+      --modelstudio-api-key) MODELSTUDIO_API_KEY="$2"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *)
         err "Unknown option: $1"
@@ -177,8 +184,10 @@ trim_value() {
 }
 
 normalize_settings() {
+  local model_provider_lower
   MIN_NODE_VERSION="$(trim_value "$MIN_NODE_VERSION")"
   MIN_PYTHON_VERSION="$(trim_value "$MIN_PYTHON_VERSION")"
+  MODEL_PROVIDER="$(trim_value "$MODEL_PROVIDER")"
   MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION%\"}"
   MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION#\"}"
   MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION%\'}"
@@ -193,12 +202,21 @@ normalize_settings() {
   if [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+$ ]]; then
     MIN_PYTHON_VERSION="${MIN_PYTHON_VERSION}.0"
   fi
+
+  model_provider_lower="$(printf '%s' "$MODEL_PROVIDER" | tr '[:upper:]' '[:lower:]')"
+  case "$model_provider_lower" in
+    "" ) MODEL_PROVIDER="" ;;
+    aliyun|aliyun-bailian|bailian|modelstudio|modelstudio-cn) MODEL_PROVIDER="aliyun-bailian" ;;
+    default|none|skip|off) MODEL_PROVIDER="default" ;;
+    *) MODEL_PROVIDER="$model_provider_lower" ;;
+  esac
 }
 
 validate_settings() {
   [[ "$MIN_NODE_VERSION" =~ ^[0-9]+$ ]] || err "--min-node-version must be an integer, got: $MIN_NODE_VERSION"
   [[ "$MIN_PYTHON_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || err "--min-python-version must be major.minor, got: $MIN_PYTHON_VERSION"
   [[ "$INSTALL_METHOD" == "npm" || "$INSTALL_METHOD" == "release" ]] || err "--install-method must be npm or release, got: $INSTALL_METHOD"
+  [[ -z "$MODEL_PROVIDER" || "$MODEL_PROVIDER" == "aliyun-bailian" || "$MODEL_PROVIDER" == "default" ]] || err "--model-provider must be aliyun-bailian or default, got: $MODEL_PROVIDER"
 }
 
 detect_platform() {
@@ -778,10 +796,73 @@ hydrate_feishu_from_existing_config() {
   [[ -n "$FEISHU_BOT_AVATAR" ]] || FEISHU_BOT_AVATAR="$(read_config_value FEISHU_BOT_AVATAR)"
 }
 
+hydrate_model_from_existing_config() {
+  [[ -n "$MODEL_PROVIDER" ]] || MODEL_PROVIDER="$(read_config_value MODEL_PROVIDER)"
+  [[ -n "$MODELSTUDIO_API_KEY" ]] || MODELSTUDIO_API_KEY="$(read_config_value MODELSTUDIO_API_KEY)"
+  [[ -n "$MODEL_PROVIDER" ]] || MODEL_PROVIDER="aliyun-bailian"
+}
+
+prompt_model_settings() {
+  local choice key_input current_label
+  [[ -n "$MODEL_PROVIDER" ]] || MODEL_PROVIDER="aliyun-bailian"
+
+  if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    if [[ ! -r /dev/tty ]]; then
+      err "Cannot prompt model settings because /dev/tty is unavailable."
+    fi
+    if [[ "$MODEL_PROVIDER" == "aliyun-bailian" ]]; then
+      current_label="阿里百炼"
+    else
+      current_label="默认"
+    fi
+    printf '\n模型厂商配置（默认推荐阿里百炼 Coding Plan）\n' > /dev/tty
+    printf '  1) 阿里百炼（智能路由，推荐）\n' > /dev/tty
+    printf '  2) 保持 OpenClaw 默认（不配置智能路由）\n' > /dev/tty
+    read -r -p "请选择 [1/2]（当前: ${current_label}, 默认1）: " choice < /dev/tty || choice=""
+    case "$choice" in
+      ""|1) MODEL_PROVIDER="aliyun-bailian" ;;
+      2) MODEL_PROVIDER="default" ;;
+      *)
+        warn "Unknown model provider choice: $choice, fallback to aliyun-bailian"
+        MODEL_PROVIDER="aliyun-bailian"
+        ;;
+    esac
+  fi
+
+  if [[ "$MODEL_PROVIDER" == "aliyun-bailian" ]]; then
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+      while true; do
+        read -r -s -p "请输入阿里百炼 API Key [隐藏，回车保留当前]: " key_input < /dev/tty || key_input=""
+        printf '\n' > /dev/tty
+        if [[ -n "$key_input" ]]; then
+          MODELSTUDIO_API_KEY="$key_input"
+          break
+        fi
+        if [[ -n "$MODELSTUDIO_API_KEY" ]]; then
+          break
+        fi
+        warn "MODELSTUDIO_API_KEY is required when MODEL_PROVIDER=aliyun-bailian."
+      done
+    fi
+  else
+    MODELSTUDIO_API_KEY=""
+  fi
+
+  if [[ "$MODEL_PROVIDER" == "aliyun-bailian" && -z "$MODELSTUDIO_API_KEY" ]]; then
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+      warn "MODEL_PROVIDER=aliyun-bailian but MODELSTUDIO_API_KEY missing in non-interactive mode; fallback to default model config."
+      MODEL_PROVIDER="default"
+    else
+      err "MODELSTUDIO_API_KEY is required when MODEL_PROVIDER=aliyun-bailian."
+    fi
+  fi
+}
+
 write_config() {
   umask 077
   mkdir -p "$CONFIG_DIR"
   hydrate_feishu_from_existing_config
+  hydrate_model_from_existing_config
 
   if [[ "$PROMPT_FEISHU" == "true" && "$NON_INTERACTIVE" != "true" ]]; then
     if [[ ! -r /dev/tty ]]; then
@@ -792,6 +873,7 @@ write_config() {
     prompt_value FEISHU_ENCRYPT_KEY "请输入飞书 FEISHU_ENCRYPT_KEY (可选，直接回车跳过)" false true
     prompt_value FEISHU_VERIFICATION_TOKEN "请输入飞书 FEISHU_VERIFICATION_TOKEN (可选，直接回车跳过)" false true
   fi
+  prompt_model_settings
 
   [[ -n "$FEISHU_APP_ID" ]] || err "FEISHU_APP_ID is required."
   [[ -n "$FEISHU_APP_SECRET" ]] || err "FEISHU_APP_SECRET is required."
@@ -804,6 +886,8 @@ FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY}
 FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN}
 FEISHU_BOT_NAME=${FEISHU_BOT_NAME}
 FEISHU_BOT_AVATAR=${FEISHU_BOT_AVATAR}
+MODEL_PROVIDER=${MODEL_PROVIDER}
+MODELSTUDIO_API_KEY=${MODELSTUDIO_API_KEY}
 OPENCLOW_HOME=${INSTALL_ROOT}
 EOF
   chmod 600 "$CONFIG_FILE"
@@ -824,6 +908,8 @@ write_openclaw_runtime_config() {
   FEISHU_VERIFICATION_TOKEN="$FEISHU_VERIFICATION_TOKEN" \
   FEISHU_BOT_NAME="$FEISHU_BOT_NAME" \
   FEISHU_BOT_AVATAR="$FEISHU_BOT_AVATAR" \
+  MODEL_PROVIDER="$MODEL_PROVIDER" \
+  MODELSTUDIO_API_KEY="$MODELSTUDIO_API_KEY" \
   python3 - <<'PY'
 import json
 import os
@@ -864,6 +950,93 @@ if bot_avatar:
 verification_token = os.environ.get("FEISHU_VERIFICATION_TOKEN", "").strip()
 if verification_token:
     feishu["verificationToken"] = verification_token
+
+def apply_modelstudio_preset(cfg_obj, api_key):
+    agents = cfg_obj.setdefault("agents", {})
+    defaults = agents.setdefault("defaults", {})
+    agent_models = defaults.setdefault("models", {})
+
+    for ref, alias in [
+        ("modelstudio/MiniMax-M2.5", "MiniMax M2.5"),
+        ("modelstudio/kimi-k2.5", "Kimi K2.5"),
+        ("modelstudio/qwen3.5-plus", "Qwen 3.5 Plus"),
+        ("modelstudio/qwen3-coder-plus", "Qwen 3 Coder Plus"),
+        ("modelstudio/qwen3-max-2026-01-23", "Qwen 3 Max"),
+    ]:
+        entry = agent_models.get(ref)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry.setdefault("alias", alias)
+        agent_models[ref] = entry
+
+    # Smart routing preset:
+    # - general chat -> kimi-k2.5
+    # - coding fallback -> qwen3-coder-plus
+    # - complex reasoning fallback -> qwen3-max
+    defaults["model"] = {
+        "primary": "modelstudio/kimi-k2.5",
+        "fallbacks": [
+            "modelstudio/qwen3-coder-plus",
+            "modelstudio/qwen3-max-2026-01-23",
+            "modelstudio/qwen3.5-plus",
+        ],
+    }
+    defaults["imageModel"] = {
+        "primary": "modelstudio/kimi-k2.5",
+        "fallbacks": ["modelstudio/qwen3.5-plus"],
+    }
+    defaults["pdfModel"] = {
+        "primary": "modelstudio/qwen3.5-plus",
+        "fallbacks": ["modelstudio/qwen3-max-2026-01-23"],
+    }
+    subagents = defaults.get("subagents")
+    if not isinstance(subagents, dict):
+        subagents = {}
+    subagents["model"] = "modelstudio/MiniMax-M2.5"
+    defaults["subagents"] = subagents
+
+    models_root = cfg_obj.setdefault("models", {})
+    providers = models_root.setdefault("providers", {})
+    provider = providers.get("modelstudio")
+    if not isinstance(provider, dict):
+        provider = {}
+    provider["baseUrl"] = "https://coding.dashscope.aliyuncs.com/v1"
+    provider["api"] = "openai-completions"
+    provider["apiKey"] = api_key
+
+    default_models = [
+        {"id": "qwen3.5-plus", "name": "qwen3.5-plus", "reasoning": False, "input": ["text", "image"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "qwen3-max-2026-01-23", "name": "qwen3-max-2026-01-23", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 65536},
+        {"id": "qwen3-coder-next", "name": "qwen3-coder-next", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 65536},
+        {"id": "qwen3-coder-plus", "name": "qwen3-coder-plus", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "MiniMax-M2.5", "name": "MiniMax-M2.5", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "glm-5", "name": "glm-5", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 202752, "maxTokens": 16384},
+        {"id": "glm-4.7", "name": "glm-4.7", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 202752, "maxTokens": 16384},
+        {"id": "kimi-k2.5", "name": "kimi-k2.5", "reasoning": False, "input": ["text", "image"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 32768},
+    ]
+    merged = []
+    seen = set()
+    for item in provider.get("models", []):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            merged.append(item)
+            seen.add(item["id"])
+    for item in default_models:
+        if item["id"] not in seen:
+            merged.append(item)
+    provider["models"] = merged
+    providers["modelstudio"] = provider
+
+    installer = cfg_obj.setdefault("openclowInstaller", {})
+    installer["modelProvider"] = "aliyun-bailian"
+    installer["modelPreset"] = "aliyun-bailian-smart-routing"
+
+model_provider = os.environ.get("MODEL_PROVIDER", "default").strip().lower()
+modelstudio_api_key = os.environ.get("MODELSTUDIO_API_KEY", "").strip()
+if model_provider == "aliyun-bailian" and modelstudio_api_key:
+    apply_modelstudio_preset(cfg, modelstudio_api_key)
+else:
+    installer = cfg.setdefault("openclowInstaller", {})
+    installer["modelProvider"] = "default"
 
 config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
@@ -914,7 +1087,7 @@ SERVICE_NAME="\${APP_NAME}.service"
 PLIST="\$HOME/Library/LaunchAgents/com.\${APP_NAME}.agent.plist"
 MENU_ITEMS=(
   "查看当前配置"
-  "设置飞书配置"
+  "设置飞书/模型配置"
   "启动并开启自启动"
   "暂停服务"
   "恢复服务"
@@ -1020,15 +1193,22 @@ write_cfg_key() {
 }
 
 sync_openclaw_runtime_config() {
-  local app_id app_secret verify_token bot_name bot_avatar
+  local app_id app_secret verify_token bot_name bot_avatar model_provider modelstudio_api_key
   app_id="\$(read_cfg FEISHU_APP_ID)"
   app_secret="\$(read_cfg FEISHU_APP_SECRET)"
   verify_token="\$(read_cfg FEISHU_VERIFICATION_TOKEN)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
   bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+  model_provider="\$(read_cfg MODEL_PROVIDER)"
+  modelstudio_api_key="\$(read_cfg MODELSTUDIO_API_KEY)"
 
   [[ -n "\$app_id" ]] || { echo "[WARN] FEISHU_APP_ID 为空，跳过同步 OpenClaw JSON 配置"; return 1; }
   [[ -n "\$app_secret" ]] || { echo "[WARN] FEISHU_APP_SECRET 为空，跳过同步 OpenClaw JSON 配置"; return 1; }
+  [[ -n "\$model_provider" ]] || model_provider="default"
+  if [[ "\$model_provider" == "aliyun-bailian" && -z "\$modelstudio_api_key" ]]; then
+    echo "[WARN] MODEL_PROVIDER=aliyun-bailian 但未填写 MODELSTUDIO_API_KEY，已回退默认模型配置"
+    model_provider="default"
+  fi
 
   if ! command_exists python3; then
     echo "[WARN] python3 未安装，无法同步 OpenClaw JSON 配置"
@@ -1041,6 +1221,8 @@ sync_openclaw_runtime_config() {
   FEISHU_VERIFICATION_TOKEN="\$verify_token" \
   FEISHU_BOT_NAME="\$bot_name" \
   FEISHU_BOT_AVATAR="\$bot_avatar" \
+  MODEL_PROVIDER="\$model_provider" \
+  MODELSTUDIO_API_KEY="\$modelstudio_api_key" \
   python3 - <<'PY'
 import json
 import os
@@ -1082,6 +1264,89 @@ verification_token = os.environ.get("FEISHU_VERIFICATION_TOKEN", "").strip()
 if verification_token:
     feishu["verificationToken"] = verification_token
 
+def apply_modelstudio_preset(cfg_obj, api_key):
+    agents = cfg_obj.setdefault("agents", {})
+    defaults = agents.setdefault("defaults", {})
+    agent_models = defaults.setdefault("models", {})
+
+    for ref, alias in [
+        ("modelstudio/MiniMax-M2.5", "MiniMax M2.5"),
+        ("modelstudio/kimi-k2.5", "Kimi K2.5"),
+        ("modelstudio/qwen3.5-plus", "Qwen 3.5 Plus"),
+        ("modelstudio/qwen3-coder-plus", "Qwen 3 Coder Plus"),
+        ("modelstudio/qwen3-max-2026-01-23", "Qwen 3 Max"),
+    ]:
+        entry = agent_models.get(ref)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry.setdefault("alias", alias)
+        agent_models[ref] = entry
+
+    defaults["model"] = {
+        "primary": "modelstudio/kimi-k2.5",
+        "fallbacks": [
+            "modelstudio/qwen3-coder-plus",
+            "modelstudio/qwen3-max-2026-01-23",
+            "modelstudio/qwen3.5-plus",
+        ],
+    }
+    defaults["imageModel"] = {
+        "primary": "modelstudio/kimi-k2.5",
+        "fallbacks": ["modelstudio/qwen3.5-plus"],
+    }
+    defaults["pdfModel"] = {
+        "primary": "modelstudio/qwen3.5-plus",
+        "fallbacks": ["modelstudio/qwen3-max-2026-01-23"],
+    }
+    subagents = defaults.get("subagents")
+    if not isinstance(subagents, dict):
+        subagents = {}
+    subagents["model"] = "modelstudio/MiniMax-M2.5"
+    defaults["subagents"] = subagents
+
+    models_root = cfg_obj.setdefault("models", {})
+    providers = models_root.setdefault("providers", {})
+    provider = providers.get("modelstudio")
+    if not isinstance(provider, dict):
+        provider = {}
+    provider["baseUrl"] = "https://coding.dashscope.aliyuncs.com/v1"
+    provider["api"] = "openai-completions"
+    provider["apiKey"] = api_key
+
+    default_models = [
+        {"id": "qwen3.5-plus", "name": "qwen3.5-plus", "reasoning": False, "input": ["text", "image"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "qwen3-max-2026-01-23", "name": "qwen3-max-2026-01-23", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 65536},
+        {"id": "qwen3-coder-next", "name": "qwen3-coder-next", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 65536},
+        {"id": "qwen3-coder-plus", "name": "qwen3-coder-plus", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "MiniMax-M2.5", "name": "MiniMax-M2.5", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 1000000, "maxTokens": 65536},
+        {"id": "glm-5", "name": "glm-5", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 202752, "maxTokens": 16384},
+        {"id": "glm-4.7", "name": "glm-4.7", "reasoning": False, "input": ["text"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 202752, "maxTokens": 16384},
+        {"id": "kimi-k2.5", "name": "kimi-k2.5", "reasoning": False, "input": ["text", "image"], "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}, "contextWindow": 262144, "maxTokens": 32768},
+    ]
+    merged = []
+    seen = set()
+    for item in provider.get("models", []):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            merged.append(item)
+            seen.add(item["id"])
+    for item in default_models:
+        if item["id"] not in seen:
+            merged.append(item)
+    provider["models"] = merged
+    providers["modelstudio"] = provider
+
+    installer = cfg_obj.setdefault("openclowInstaller", {})
+    installer["modelProvider"] = "aliyun-bailian"
+    installer["modelPreset"] = "aliyun-bailian-smart-routing"
+
+model_provider = os.environ.get("MODEL_PROVIDER", "default").strip().lower()
+modelstudio_api_key = os.environ.get("MODELSTUDIO_API_KEY", "").strip()
+if model_provider == "aliyun-bailian" and modelstudio_api_key:
+    apply_modelstudio_preset(cfg, modelstudio_api_key)
+else:
+    installer = cfg.setdefault("openclowInstaller", {})
+    installer["modelProvider"] = "default"
+
 config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 
@@ -1090,12 +1355,16 @@ PY
 
 configure_feishu() {
   local app_id app_secret encrypt_key verify_token bot_name bot_avatar
+  local model_provider modelstudio_api_key choice current_label
   app_id="\$(read_cfg FEISHU_APP_ID)"
   app_secret="\$(read_cfg FEISHU_APP_SECRET)"
   encrypt_key="\$(read_cfg FEISHU_ENCRYPT_KEY)"
   verify_token="\$(read_cfg FEISHU_VERIFICATION_TOKEN)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
   bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+  model_provider="\$(read_cfg MODEL_PROVIDER)"
+  modelstudio_api_key="\$(read_cfg MODELSTUDIO_API_KEY)"
+  [[ -n "\$model_provider" ]] || model_provider="aliyun-bailian"
 
   echo "请输入飞书配置（可直接回车保留当前值）"
   read -r -p "FEISHU_APP_ID [\$app_id]: " v; app_id="\${v:-\$app_id}"
@@ -1104,6 +1373,38 @@ configure_feishu() {
   read -r -s -p "FEISHU_VERIFICATION_TOKEN [隐藏]: " v; echo; verify_token="\${v:-\$verify_token}"
   read -r -p "FEISHU_BOT_NAME [\$bot_name]: " v; bot_name="\${v:-\$bot_name}"
   read -r -p "FEISHU_BOT_AVATAR [\$bot_avatar]: " v; bot_avatar="\${v:-\$bot_avatar}"
+
+  if [[ "\$model_provider" == "aliyun-bailian" ]]; then
+    current_label="阿里百炼"
+  else
+    current_label="默认"
+  fi
+  echo
+  echo "模型厂商配置："
+  echo "  1) 阿里百炼（智能路由，推荐）"
+  echo "  2) 保持 OpenClaw 默认（不配置智能路由）"
+  read -r -p "MODEL_PROVIDER [1/2, 当前: \$current_label, 默认1]: " choice
+  case "\$choice" in
+    ""|1) model_provider="aliyun-bailian" ;;
+    2) model_provider="default" ;;
+    *) echo "[WARN] 未识别的选择，使用当前值: \$current_label" ;;
+  esac
+  if [[ "\$model_provider" == "aliyun-bailian" ]]; then
+    while true; do
+      read -r -s -p "MODELSTUDIO_API_KEY [隐藏，回车保留当前]: " v
+      echo
+      if [[ -n "\$v" ]]; then
+        modelstudio_api_key="\$v"
+        break
+      fi
+      if [[ -n "\$modelstudio_api_key" ]]; then
+        break
+      fi
+      echo "[ERROR] 选择阿里百炼时必须填写 MODELSTUDIO_API_KEY"
+    done
+  else
+    modelstudio_api_key=""
+  fi
 
   [[ -n "\$app_id" ]] || { echo "[ERROR] FEISHU_APP_ID 不能为空"; return 1; }
   [[ -n "\$app_secret" ]] || { echo "[ERROR] FEISHU_APP_SECRET 不能为空"; return 1; }
@@ -1114,22 +1415,34 @@ configure_feishu() {
   write_cfg_key FEISHU_VERIFICATION_TOKEN "\$verify_token"
   write_cfg_key FEISHU_BOT_NAME "\${bot_name:-OpenClow Bot}"
   write_cfg_key FEISHU_BOT_AVATAR "\$bot_avatar"
+  write_cfg_key MODEL_PROVIDER "\$model_provider"
+  write_cfg_key MODELSTUDIO_API_KEY "\$modelstudio_api_key"
   write_cfg_key OPENCLOW_HOME "$INSTALL_ROOT"
   sync_openclaw_runtime_config || true
   echo "[INFO] 配置已保存到 \$CONFIG_FILE"
 }
 
 show_config() {
-  local app_id app_secret bot_name bot_avatar
+  local app_id app_secret bot_name bot_avatar model_provider modelstudio_api_key model_provider_text
   app_id="\$(read_cfg FEISHU_APP_ID)"
   app_secret="\$(read_cfg FEISHU_APP_SECRET)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
   bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+  model_provider="\$(read_cfg MODEL_PROVIDER)"
+  modelstudio_api_key="\$(read_cfg MODELSTUDIO_API_KEY)"
+  [[ -n "\$model_provider" ]] || model_provider="default"
+  if [[ "\$model_provider" == "aliyun-bailian" ]]; then
+    model_provider_text="阿里百炼（智能路由）"
+  else
+    model_provider_text="默认"
+  fi
   echo -e "\${C_BOLD}当前配置\${C_RESET}"
   echo "  FEISHU_APP_ID: \$app_id"
   echo "  FEISHU_APP_SECRET: \$(mask_secret "\$app_secret")"
   echo "  FEISHU_BOT_NAME: \$bot_name"
   echo "  FEISHU_BOT_AVATAR: \$bot_avatar"
+  echo "  MODEL_PROVIDER: \$model_provider_text"
+  echo "  MODELSTUDIO_API_KEY: \$(mask_secret "\$modelstudio_api_key")"
   echo "  CONFIG_FILE: \$CONFIG_FILE"
   echo "  OPENCLAW_CONFIG_PATH: \$OPENCLAW_RUNTIME_CONFIG_FILE"
   echo
@@ -1204,13 +1517,20 @@ runtime_python() {
 }
 
 render_status_panel() {
-  local app_id bot_name
+  local app_id bot_name model_provider model_text
   app_id="\$(read_cfg FEISHU_APP_ID)"
   bot_name="\$(read_cfg FEISHU_BOT_NAME)"
+  model_provider="\$(read_cfg MODEL_PROVIDER)"
   [[ -n "\$bot_name" ]] || bot_name="OpenClow Bot"
+  if [[ "\$model_provider" == "aliyun-bailian" ]]; then
+    model_text="阿里百炼"
+  else
+    model_text="默认"
+  fi
   echo -e "\${C_CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━ 当前状态 ━━━━━━━━━━━━━━━━━━━━━━━━┓\${C_RESET}"
   echo -e "\${C_CYAN}┃\${C_RESET} 服务状态: \$(service_state_text)   自启动: \$(autostart_state_text)"
   echo -e "\${C_CYAN}┃\${C_RESET} 飞书应用: \${C_BOLD}\${app_id:-未配置}\${C_RESET}   机器人: \${bot_name}"
+  echo -e "\${C_CYAN}┃\${C_RESET} 模型厂商: \${C_BOLD}\${model_text}\${C_RESET}"
   echo -e "\${C_CYAN}┃\${C_RESET} Node: \${C_BOLD}\$(runtime_node)\${C_RESET}   Python: \${C_BOLD}\$(runtime_python)\${C_RESET}"
   echo -e "\${C_CYAN}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\${C_RESET}"
   echo
@@ -1483,7 +1803,7 @@ menu_basic() {
     render_header
     render_status_panel
     echo "1) 查看当前配置"
-    echo "2) 设置飞书配置"
+    echo "2) 设置飞书/模型配置"
     echo "3) 启动并开启自启动"
     echo "4) 暂停服务"
     echo "5) 恢复服务"
@@ -1583,11 +1903,22 @@ configure_autostart() {
 }
 
 print_summary() {
-  local node_info python_info start_cmd shell_reload_cmd
+  local node_info python_info start_cmd shell_reload_cmd model_provider_text model_key_text
   node_info="$(command -v node >/dev/null 2>&1 && node -v || echo skipped)"
   python_info="$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo skipped)"
   start_cmd="$INSTALL_ROOT/run-openclow.sh"
   shell_reload_cmd="source ~/.zshrc"
+  if [[ "$MODEL_PROVIDER" == "aliyun-bailian" ]]; then
+    model_provider_text="aliyun-bailian (智能路由已启用)"
+    if [[ -n "$MODELSTUDIO_API_KEY" ]]; then
+      model_key_text="${MODELSTUDIO_API_KEY:0:4}****"
+    else
+      model_key_text="未设置"
+    fi
+  else
+    model_provider_text="default (未配置智能路由)"
+    model_key_text="未设置"
+  fi
   cat <<EOF
 
 Install complete.
@@ -1604,6 +1935,8 @@ Install complete.
 - Download URL: $RESOLVED_DOWNLOAD_URL
 - Node.js: $node_info
 - Python: $python_info
+- Model provider: $model_provider_text
+- Model API Key: $model_key_text
 
 Run commands:
   前台直接运行:
@@ -1619,6 +1952,9 @@ Run commands:
 Quick checks:
   $BIN_DIR/$APP_NAME --help
   $BIN_DIR/openclow-manager
+
+Aliyun Model Studio:
+  https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail
 EOF
 }
 
@@ -1626,7 +1962,7 @@ launch_manager_after_install() {
   if [[ "$NON_INTERACTIVE" == "true" ]]; then
     return
   fi
-  if [[ ! -t 0 || ! -t 1 ]]; then
+  if [[ ! -t 1 && ! -r /dev/tty ]]; then
     return
   fi
   if [[ ! -x "$BIN_DIR/openclow-manager" ]]; then
@@ -1634,7 +1970,11 @@ launch_manager_after_install() {
     return
   fi
   printf '\n[INFO] 正在启动管理界面: openclow-manager\n\n'
-  "$BIN_DIR/openclow-manager" || warn "openclow-manager exited with non-zero status."
+  if [[ -r /dev/tty ]]; then
+    "$BIN_DIR/openclow-manager" < /dev/tty > /dev/tty 2>&1 || warn "openclow-manager exited with non-zero status."
+  else
+    "$BIN_DIR/openclow-manager" || warn "openclow-manager exited with non-zero status."
+  fi
 }
 
 main() {
