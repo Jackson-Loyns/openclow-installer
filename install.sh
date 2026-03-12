@@ -925,6 +925,8 @@ if config_path.exists():
     except Exception:
         cfg = {}
 
+cfg.pop("openclowInstaller", None)
+
 gateway = cfg.setdefault("gateway", {})
 gateway["mode"] = "local"
 
@@ -1026,22 +1028,72 @@ def apply_modelstudio_preset(cfg_obj, api_key):
     provider["models"] = merged
     providers["modelstudio"] = provider
 
-    installer = cfg_obj.setdefault("openclowInstaller", {})
-    installer["modelProvider"] = "aliyun-bailian"
-    installer["modelPreset"] = "aliyun-bailian-smart-routing"
-
 model_provider = os.environ.get("MODEL_PROVIDER", "default").strip().lower()
 modelstudio_api_key = os.environ.get("MODELSTUDIO_API_KEY", "").strip()
 if model_provider == "aliyun-bailian" and modelstudio_api_key:
     apply_modelstudio_preset(cfg, modelstudio_api_key)
-else:
-    installer = cfg.setdefault("openclowInstaller", {})
-    installer["modelProvider"] = "default"
 
 config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 
   log "Wrote OpenClaw runtime config: $OPENCLAW_RUNTIME_CONFIG_FILE"
+}
+
+enable_feishu_plugin_for_runtime_config() {
+  local cli tmp_json enabled
+  cli="$INSTALL_ROOT/bin/$APP_NAME"
+  if [[ ! -x "$cli" ]]; then
+    warn "OpenClaw CLI not found at $cli; skip Feishu plugin enable."
+    return 0
+  fi
+  if ! command_exists python3; then
+    warn "python3 not found; skip Feishu plugin status check."
+    return 0
+  fi
+
+  tmp_json="$(mktemp)"
+  if ! OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE" "$cli" plugins list --json >"$tmp_json" 2>/dev/null; then
+    rm -f "$tmp_json"
+    warn "Failed to inspect plugin list with OPENCLAW_CONFIG_PATH=$OPENCLAW_RUNTIME_CONFIG_FILE"
+    return 0
+  fi
+
+enabled="$(python3 - "$tmp_json" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+try:
+    raw = open(path, encoding="utf-8").read()
+    start = raw.find("{")
+    if start < 0:
+        print("0")
+        raise SystemExit(0)
+    data = json.loads(raw[start:])
+except Exception:
+    print("0")
+    raise SystemExit(0)
+for item in data.get("plugins", []):
+    if item.get("id") == "feishu":
+        print("1" if item.get("enabled") else "0")
+        break
+else:
+    print("0")
+PY
+)"
+  rm -f "$tmp_json"
+
+  if [[ "$enabled" == "1" ]]; then
+    log "Feishu plugin already enabled."
+    return 0
+  fi
+
+  log "Enabling Feishu plugin for runtime config..."
+  if OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE" "$cli" plugins enable feishu >/dev/null 2>&1; then
+    log "Feishu plugin enabled."
+  else
+    warn "Failed to enable Feishu plugin automatically. You can run:"
+    warn "OPENCLAW_CONFIG_PATH=\"$OPENCLAW_RUNTIME_CONFIG_FILE\" $cli plugins enable feishu"
+  fi
 }
 
 write_runner() {
@@ -1238,6 +1290,8 @@ if config_path.exists():
     except Exception:
         cfg = {}
 
+cfg.pop("openclowInstaller", None)
+
 gateway = cfg.setdefault("gateway", {})
 gateway["mode"] = "local"
 
@@ -1335,22 +1389,72 @@ def apply_modelstudio_preset(cfg_obj, api_key):
     provider["models"] = merged
     providers["modelstudio"] = provider
 
-    installer = cfg_obj.setdefault("openclowInstaller", {})
-    installer["modelProvider"] = "aliyun-bailian"
-    installer["modelPreset"] = "aliyun-bailian-smart-routing"
-
 model_provider = os.environ.get("MODEL_PROVIDER", "default").strip().lower()
 modelstudio_api_key = os.environ.get("MODELSTUDIO_API_KEY", "").strip()
 if model_provider == "aliyun-bailian" and modelstudio_api_key:
     apply_modelstudio_preset(cfg, modelstudio_api_key)
-else:
-    installer = cfg.setdefault("openclowInstaller", {})
-    installer["modelProvider"] = "default"
 
 config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 
   echo "[INFO] OpenClaw JSON 配置已同步: \$OPENCLAW_RUNTIME_CONFIG_FILE"
+}
+
+ensure_feishu_plugin_enabled() {
+  local cli tmp_json enabled
+  cli="\$BIN_DIR/\$APP_NAME"
+  if [[ ! -x "\$cli" ]]; then
+    echo "[WARN] OpenClaw CLI 不存在: \$cli，跳过 Feishu 插件检查"
+    return 0
+  fi
+  if ! command_exists python3; then
+    echo "[WARN] python3 未安装，跳过 Feishu 插件检查"
+    return 0
+  fi
+
+  tmp_json="\$(mktemp)"
+  if ! OPENCLAW_CONFIG_PATH="\$OPENCLAW_RUNTIME_CONFIG_FILE" "\$cli" plugins list --json >"\$tmp_json" 2>/dev/null; then
+    rm -f "\$tmp_json"
+    echo "[WARN] 无法读取插件列表，跳过 Feishu 插件检查"
+    return 0
+  fi
+
+  enabled="\$(python3 - "\$tmp_json" <<'PY'
+import json
+import sys
+path = sys.argv[1]
+try:
+    raw = open(path, encoding="utf-8").read()
+    start = raw.find("{")
+    if start < 0:
+        print("0")
+        raise SystemExit(0)
+    data = json.loads(raw[start:])
+except Exception:
+    print("0")
+    raise SystemExit(0)
+for item in data.get("plugins", []):
+    if item.get("id") == "feishu":
+        print("1" if item.get("enabled") else "0")
+        break
+else:
+    print("0")
+PY
+)"
+  rm -f "\$tmp_json"
+
+  if [[ "\$enabled" == "1" ]]; then
+    echo "[INFO] Feishu 插件已启用"
+    return 0
+  fi
+
+  echo "[INFO] 正在启用 Feishu 插件..."
+  if OPENCLAW_CONFIG_PATH="\$OPENCLAW_RUNTIME_CONFIG_FILE" "\$cli" plugins enable feishu >/dev/null 2>&1; then
+    echo "[INFO] Feishu 插件启用成功"
+  else
+    echo "[WARN] Feishu 插件启用失败，可手动执行："
+    echo "  OPENCLAW_CONFIG_PATH=\$OPENCLAW_RUNTIME_CONFIG_FILE \$cli plugins enable feishu"
+  fi
 }
 
 configure_feishu() {
@@ -1419,6 +1523,7 @@ configure_feishu() {
   write_cfg_key MODELSTUDIO_API_KEY "\$modelstudio_api_key"
   write_cfg_key OPENCLOW_HOME "$INSTALL_ROOT"
   sync_openclaw_runtime_config || true
+  ensure_feishu_plugin_enabled || true
   echo "[INFO] 配置已保存到 \$CONFIG_FILE"
 }
 
@@ -1616,6 +1721,7 @@ MAC_EOF
 
 service_enable_autostart() {
   sync_openclaw_runtime_config || true
+  ensure_feishu_plugin_enabled || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user enable --now "\$SERVICE_NAME"; then
@@ -1664,6 +1770,7 @@ service_pause() {
 
 service_resume() {
   sync_openclaw_runtime_config || true
+  ensure_feishu_plugin_enabled || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user start "\$SERVICE_NAME"; then
@@ -1686,6 +1793,7 @@ service_resume() {
 
 service_restart() {
   sync_openclaw_runtime_config || true
+  ensure_feishu_plugin_enabled || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user restart "\$SERVICE_NAME"; then
@@ -2026,6 +2134,7 @@ main() {
   step "写入配置并生成管理命令"
   write_config
   write_openclaw_runtime_config
+  enable_feishu_plugin_for_runtime_config
   configure_autostart
 
   step "安装完成"

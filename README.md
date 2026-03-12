@@ -155,6 +155,11 @@ openclow-manager
 - 选择 `2) 设置飞书/模型配置`，填好 `App ID` 和 `App Secret`。
 - 再选择 `3) 启动并开启自启动`（新版会自动打印最近启动日志）。
 - 回到飞书开放平台，再点保存长连接配置。
+- 如果还是不通，手动执行一次插件启用（只需一次）：
+```bash
+OPENCLAW_CONFIG_PATH=~/.config/openclow/openclaw.json ~/.local/bin/openclow plugins enable feishu
+openclow-manager
+```
 
 2. 管理器里显示“飞书应用: 未配置”
 - 通常是 `App ID` 或 `App Secret` 没真正写入。
