@@ -746,6 +746,7 @@ install_with_npm() {
   cat > "$INSTALL_ROOT/bin/$APP_NAME" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+export OPENCLAW_CONFIG_PATH="\${OPENCLAW_CONFIG_PATH:-$OPENCLAW_RUNTIME_CONFIG_FILE}"
 if [[ -x "$node_bin" ]]; then
   export PATH="$(dirname "$node_bin"):\$PATH"
 fi
@@ -1182,7 +1183,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
   done < "$CONFIG_FILE"
 fi
 export OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE"
-exec "$INSTALL_ROOT/bin/$APP_NAME" gateway run --allow-unconfigured
+exec "$INSTALL_ROOT/bin/$APP_NAME" gateway run --allow-unconfigured --auth none
 EOF
   chmod +x "$INSTALL_ROOT/run-openclow.sh"
 }
@@ -1937,11 +1938,11 @@ open_dashboard_after_start() {
     return 0
   fi
   echo "[INFO] 正在自动打开控制台页面（带网关 token）..."
-  if "\$cli" dashboard; then
+  if OPENCLAW_CONFIG_PATH="\$OPENCLAW_RUNTIME_CONFIG_FILE" "\$cli" dashboard; then
     return 0
   fi
   echo "[WARN] 自动打开失败，可手动执行:"
-  echo "  \$cli dashboard"
+  echo "  OPENCLAW_CONFIG_PATH=\$OPENCLAW_RUNTIME_CONFIG_FILE \$cli dashboard"
 }
 
 delete_openclow() {
@@ -2215,9 +2216,9 @@ auto_open_dashboard_after_install() {
   fi
   printf '\n[INFO] 安装完成，正在自动打开控制台页面（带网关 token）...\n'
   if [[ -r /dev/tty ]]; then
-    "$BIN_DIR/$APP_NAME" dashboard < /dev/tty > /dev/tty 2>&1 || warn "Auto open dashboard failed. Run: $BIN_DIR/$APP_NAME dashboard"
+    OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE" "$BIN_DIR/$APP_NAME" dashboard < /dev/tty > /dev/tty 2>&1 || warn "Auto open dashboard failed. Run: OPENCLAW_CONFIG_PATH=$OPENCLAW_RUNTIME_CONFIG_FILE $BIN_DIR/$APP_NAME dashboard"
   else
-    "$BIN_DIR/$APP_NAME" dashboard || warn "Auto open dashboard failed. Run: $BIN_DIR/$APP_NAME dashboard"
+    OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE" "$BIN_DIR/$APP_NAME" dashboard || warn "Auto open dashboard failed. Run: OPENCLAW_CONFIG_PATH=$OPENCLAW_RUNTIME_CONFIG_FILE $BIN_DIR/$APP_NAME dashboard"
   fi
 }
 

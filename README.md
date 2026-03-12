@@ -73,6 +73,7 @@ openclow-manager
 2. 选 `3) 启动并开启自启动`
 
 > 执行 `3` 后会自动打开控制台页面。
+> 安装器默认本机网关为 `--auth none`，不需要手动粘贴 token。
 
 如果提示 `command not found`：
 
@@ -92,6 +93,7 @@ openclow dashboard
 ```
 
 这条命令会带上 token 打开浏览器，避免 `gateway token missing`。
+新版默认已关闭本机 token 校验，一般不会再出现这个报错。
 
 ## 5) 你给的图片（阿里百炼套餐页）
 
