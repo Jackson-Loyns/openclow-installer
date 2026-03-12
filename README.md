@@ -76,6 +76,12 @@
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
+如果你想强制拉取最新脚本（防缓存），用：
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh?ts=$(date +%s)" | bash -s --
+```
+
 这个命令会自动完成（仅适配 macOS）：
 - 检查环境（会显示检查过程）
 - 自动安装 OpenClow
