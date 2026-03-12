@@ -1634,6 +1634,7 @@ service_enable_autostart() {
     return 1
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 已启动并开启自启动"
+  show_startup_snapshot
 }
 
 service_disable_autostart() {
@@ -1680,6 +1681,7 @@ service_resume() {
     return 1
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 已恢复服务"
+  show_startup_snapshot
 }
 
 service_restart() {
@@ -1700,6 +1702,7 @@ service_restart() {
     return 1
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 服务已重启"
+  show_startup_snapshot
 }
 
 service_status() {
@@ -1723,6 +1726,20 @@ show_logs() {
   else
     echo "[WARN] 当前系统不支持日志命令"
   fi
+}
+
+print_realtime_log_hint() {
+  if [[ "\$OS" == "linux" ]]; then
+    echo "实时日志命令: journalctl --user -u \$SERVICE_NAME -f"
+  elif [[ "\$OS" == "darwin" ]]; then
+    echo "实时日志命令: tail -f $INSTALL_ROOT/\${APP_NAME}.log $INSTALL_ROOT/\${APP_NAME}.err.log"
+  fi
+}
+
+show_startup_snapshot() {
+  echo "[INFO] 服务以后台模式运行，下面显示最近启动日志："
+  show_logs
+  print_realtime_log_hint
 }
 
 delete_openclow() {
