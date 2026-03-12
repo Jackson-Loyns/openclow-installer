@@ -4,11 +4,7 @@
 用一条命令在 macOS 安装 OpenClow，并把飞书配置好。
 
 你发的截图已放到仓库：
-- `assets/feishu-no-connection.png`
-
-文档内直接预览：
-
-![飞书未连接示例](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/assets/feishu-no-connection.png)
+- `assets/bailian-plan.png`
 
 ## 1. 先在飞书开放平台准备好应用
 
@@ -115,10 +111,6 @@ openclow dashboard
 
 ### 5.1 飞书提示 `No connection detected`
 
-先看下面这个典型页面（就是这个报错）：
-
-![Feishu no connection example](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/assets/feishu-no-connection.png)
-
 处理步骤：
 
 1. 确认你已经添加事件 `im.message.receive_v1`
@@ -152,6 +144,10 @@ tail -f ~/.openclow/openclow.log ~/.openclow/openclow.err.log
 ## 6. 模型配置说明（阿里百炼）
 
 百炼入口：[阿里百炼 Coding Plan](https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail)
+
+你发的这张图对应的是百炼套餐页面（用于选套餐和创建 Key）：
+
+![阿里百炼套餐页面](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/assets/bailian-plan.png)
 
 规则：
 - 选择 `aliyun-bailian` 时，必须填写 API Key，安装器会写入智能路由
