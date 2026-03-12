@@ -132,6 +132,7 @@ openclow-manager
 在管理器里：
 - 先用 `2) 设置飞书/模型配置`
 - 再用 `3) 启动并开启自启动`
+- 后续可用数字 `1-10` 直接操作，不需要方向键
 
 ## 5) 关键配置文件
 
@@ -143,3 +144,33 @@ openclow-manager
 - `FEISHU_APP_SECRET`
 - `MODEL_PROVIDER`（`aliyun-bailian` / `default`）
 - `MODELSTUDIO_API_KEY`
+
+## 6) 常见问题（按你截图补充）
+
+1. 飞书后台提示 `No connection detected`
+- 这是本地长连接还没建立，不是飞书页面问题。
+- 先在本机执行 `openclow-manager`。
+- 选择 `2) 设置飞书/模型配置`，填好 `App ID` 和 `App Secret`。
+- 再选择 `3) 启动并开启自启动`。
+- 回到飞书开放平台，再点保存长连接配置。
+
+2. 管理器里显示“飞书应用: 未配置”
+- 通常是 `App ID` 或 `App Secret` 没真正写入。
+- 执行 `openclow-manager` -> `2) 设置飞书/模型配置` 重新填写。
+- 填完后用 `1) 查看当前配置` 确认 `FEISHU_APP_ID` 已显示，`FEISHU_APP_SECRET` 不为空（会脱敏显示）。
+
+3. 看起来“一直在下载中”
+- 首次 `npm install` 依赖较多，可能持续几分钟。
+- 出现 `deprecated` 警告通常不是失败。
+- 只要最后出现 `Install complete.` 就是安装成功。
+
+4. `openclow-manager` 提示找不到
+- 执行：
+```bash
+source ~/.zshrc
+openclow-manager
+```
+- 还是不行就直接用绝对路径：
+```bash
+~/.local/bin/openclow-manager
+```
