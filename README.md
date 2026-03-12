@@ -7,10 +7,49 @@
 只做这几件事：
 1. 创建企业自建应用
 2. 开启机器人（Bot）
-3. 在 `Events & Callbacks` 里选择 `persistent connection`
-4. 添加事件：`im.message.receive_v1`
-5. 发布应用版本
-6. 记下 `App ID` 和 `App Secret`
+3. 在 `Permissions & Scopes` 里导入权限（见下面 JSON）
+4. 在 `Events & Callbacks` 里选择 `persistent connection`
+5. 添加事件：`im.message.receive_v1`
+6. 发布应用版本
+7. 记下 `App ID` 和 `App Secret`
+
+权限管理（直接复制到飞书「批量导入权限」）：
+
+```json
+{
+  "scopes": {
+    "tenant": [
+      "aily:file:read",
+      "aily:file:write",
+      "application:application.app_message_stats.overview:readonly",
+      "application:application:self_manage",
+      "application:bot.menu:write",
+      "cardkit:card:write",
+      "contact:user.employee_id:readonly",
+      "corehr:file:download",
+      "docs:document.content:read",
+      "event:ip_list",
+      "im:chat",
+      "im:chat.access_event.bot_p2p_chat:read",
+      "im:chat.members:bot_access",
+      "im:message",
+      "im:message.group_at_msg:readonly",
+      "im:message.group_msg",
+      "im:message.p2p_msg:readonly",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:resource",
+      "sheets:spreadsheet",
+      "wiki:wiki:readonly"
+    ],
+    "user": [
+      "aily:file:read",
+      "aily:file:write",
+      "im:chat.access_event.bot_p2p_chat:read"
+    ]
+  }
+}
+```
 
 ## 2) 安装（只用这一条命令）
 
