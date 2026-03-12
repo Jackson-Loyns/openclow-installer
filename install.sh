@@ -863,13 +863,24 @@ press_enter() {
 }
 
 read_key() {
-  local key rest
+  local key seq
   IFS= read -rsn1 key || return 1
   if [[ "\$key" == \$'\\e' ]]; then
-    IFS= read -rsn2 -t 0.05 rest || true
-    key="\$key\$rest"
+    IFS= read -rsn2 -t 1 seq || true
+    key="\$key\$seq"
   fi
   printf '%s' "\$key"
+}
+
+key_action() {
+  local key="\$1"
+  case "\$key" in
+    \$'\\e[A'|\$'\\eOA'|\$'\\e['*A) printf 'UP' ;;
+    \$'\\e[B'|\$'\\eOB'|\$'\\e['*B) printf 'DOWN' ;;
+    \$'\\n'|\$'\\r') printf 'ENTER' ;;
+    0|1|2|3|4|5|6|7|8|9|q|Q) printf '%s' "\$key" ;;
+    *) printf '' ;;
+  esac
 }
 
 render_header() {
@@ -1277,17 +1288,18 @@ run_menu_action() {
 menu_interactive() {
   local selected=0
   local max_index=\$((\${#MENU_ITEMS[@]} - 1))
-  local key
+  local key action
   while true; do
     render_header
     render_status_panel
     render_menu_panel "\$selected"
     key="\$(read_key || true)"
     [[ -n "\$key" ]] || return 1
-    case "\$key" in
-      \$'\\e[A') selected=\$((selected - 1)); [[ "\$selected" -lt 0 ]] && selected="\$max_index" ;;
-      \$'\\e[B') selected=\$((selected + 1)); [[ "\$selected" -gt "\$max_index" ]] && selected=0 ;;
-      \$'\\n'|\$'\\r') run_menu_action "\$selected"; press_enter ;;
+    action="\$(key_action "\$key")"
+    case "\$action" in
+      UP) selected=\$((selected - 1)); [[ "\$selected" -lt 0 ]] && selected="\$max_index" ;;
+      DOWN) selected=\$((selected + 1)); [[ "\$selected" -gt "\$max_index" ]] && selected=0 ;;
+      ENTER) run_menu_action "\$selected"; press_enter ;;
       1) run_menu_action 0; press_enter ;;
       2) run_menu_action 1; press_enter ;;
       3) run_menu_action 2; press_enter ;;
