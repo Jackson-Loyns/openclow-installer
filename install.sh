@@ -8,6 +8,7 @@ INSTALL_METHOD="${INSTALL_METHOD:-npm}"
 NPM_PACKAGE="${NPM_PACKAGE:-openclaw}"
 NPM_VERSION="${NPM_VERSION:-latest}"
 NPM_BIN_NAME="${NPM_BIN_NAME:-openclaw}"
+NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 
 OPENCLOW_REPO="${OPENCLOW_REPO:-openclaw/openclaw}"
 OPENCLOW_VERSION="${OPENCLOW_VERSION:-latest}"
@@ -87,6 +88,7 @@ Options:
   --npm-package <name>               npm package name, default: openclaw
   --npm-version <version>            npm package version/tag, default: latest
   --npm-bin-name <name>              installed CLI bin name, default: openclaw
+  --npm-registry <url>               npm registry, default: https://registry.npmmirror.com
   --install-root <path>              Install directory (default: ~/.openclow)
   --bin-dir <path>                   Symlink directory (default: ~/.local/bin)
   --config-file <path>               Config file path (default: ~/.config/openclow/config.env)
@@ -107,7 +109,7 @@ Options:
   -h, --help                         Show help
 
 Environment variables:
-  INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME
+  INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME, NPM_REGISTRY
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
   INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START
   PROMPT_FEISHU, SKIP_DEP_INSTALL
@@ -127,6 +129,7 @@ parse_args() {
       --npm-package) NPM_PACKAGE="$2"; shift 2 ;;
       --npm-version) NPM_VERSION="$2"; shift 2 ;;
       --npm-bin-name) NPM_BIN_NAME="$2"; shift 2 ;;
+      --npm-registry) NPM_REGISTRY="$2"; shift 2 ;;
       --install-root) INSTALL_ROOT="$2"; shift 2 ;;
       --bin-dir) BIN_DIR="$2"; shift 2 ;;
       --config-file)
@@ -608,9 +611,10 @@ install_with_npm() {
   fi
 
   log "Installing via npm: $spec"
+  log "npm registry: $NPM_REGISTRY"
   log "This may take several minutes on first run (downloading npm dependencies)..."
   mkdir -p "$NPM_GLOBAL_DIR" "$NPM_GLOBAL_BIN_DIR"
-  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund "$spec"; then
+  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund --registry "$NPM_REGISTRY" "$spec"; then
     err "npm install failed for $spec (user-local prefix: $NPM_GLOBAL_DIR)."
   fi
 
