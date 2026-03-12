@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="openclow"
-INSTALLER_VERSION="0.1.0"
+INSTALLER_VERSION="0.1.1"
 
 INSTALL_METHOD="${INSTALL_METHOD:-npm}"
 NPM_PACKAGE="${NPM_PACKAGE:-openclaw}"
@@ -74,6 +74,7 @@ EOF
 usage() {
   cat <<'EOF'
 OpenClow Installer
+Target platform: macOS only
 
 Usage:
   bash install.sh [options]
@@ -194,37 +195,14 @@ validate_settings() {
   [[ "$INSTALL_METHOD" == "npm" || "$INSTALL_METHOD" == "release" ]] || err "--install-method must be npm or release, got: $INSTALL_METHOD"
 }
 
-run_privileged() {
-  if [[ "$(id -u)" -eq 0 ]]; then
-    "$@"
-    return
-  fi
-  if command_exists sudo; then
-    sudo "$@"
-    return
-  fi
-  err "Need root privileges for dependency install, but sudo is not available."
-}
-
-has_admin_sudo() {
-  if [[ "$(id -u)" -eq 0 ]]; then
-    return 0
-  fi
-  if ! command_exists sudo; then
-    return 1
-  fi
-  sudo -n true >/dev/null 2>&1
-}
-
 detect_platform() {
   local uname_s uname_m
   uname_s="$(uname -s | tr '[:upper:]' '[:lower:]')"
   uname_m="$(uname -m | tr '[:upper:]' '[:lower:]')"
 
   case "$uname_s" in
-    linux) OS="linux" ;;
     darwin) OS="darwin" ;;
-    *) err "Unsupported OS: $uname_s (only Linux/macOS)" ;;
+    *) err "Unsupported OS: $uname_s (this installer currently supports macOS only)" ;;
   esac
 
   case "$uname_m" in
@@ -235,22 +213,11 @@ detect_platform() {
 }
 
 detect_package_manager() {
-  if [[ "$OS" == "darwin" ]]; then
-    if command_exists brew; then
-      PKG_MANAGER="brew"
-    else
-      PKG_MANAGER=""
-    fi
-    return
+  if command_exists brew; then
+    PKG_MANAGER="brew"
+  else
+    PKG_MANAGER="user-local"
   fi
-
-  for pm in apt-get dnf yum pacman zypper apk; do
-    if command_exists "$pm"; then
-      PKG_MANAGER="$pm"
-      return
-    fi
-  done
-  PKG_MANAGER=""
 }
 
 collect_base_dependency_status() {
@@ -350,35 +317,6 @@ preflight_checks() {
   print_preflight_report
 }
 
-try_install_homebrew_if_needed() {
-  if command_exists brew; then
-    return 0
-  fi
-  if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
-    return 1
-  fi
-  if ! has_admin_sudo; then
-    return 1
-  fi
-  log "Homebrew not found, installing Homebrew..."
-  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || return 1
-  if ! command_exists brew; then
-    if [[ -x /opt/homebrew/bin/brew ]]; then
-      eval "$(/opt/homebrew/bin/brew shellenv)"
-    elif [[ -x /usr/local/bin/brew ]]; then
-      eval "$(/usr/local/bin/brew shellenv)"
-    fi
-  fi
-  command_exists brew
-}
-
-install_homebrew_if_needed() {
-  if try_install_homebrew_if_needed; then
-    return
-  fi
-  err "Homebrew install failed, and no usable admin sudo was detected on macOS."
-}
-
 install_node_runtime_userland_macos() {
   local node_arch node_tag node_url tmpdir extract_dir
   case "$ARCH" in
@@ -457,67 +395,7 @@ install_missing_deps() {
     err "Missing dependencies: ${missing[*]}. Remove --skip-deps or install them manually."
   fi
 
-  detect_package_manager
-  if [[ "$OS" == "darwin" ]]; then
-    install_homebrew_if_needed
-    for dep in "${missing[@]}"; do
-      case "$dep" in
-        awk) brew install gawk ;;
-        *) brew install "$dep" ;;
-      esac
-    done
-    return
-  fi
-
-  [[ -n "$PKG_MANAGER" ]] || err "No supported package manager found. Install dependencies manually: ${missing[*]}"
-
-  case "$PKG_MANAGER" in
-    apt-get)
-      run_privileged apt-get update -y
-      for dep in "${missing[@]}"; do
-        case "$dep" in
-          awk) run_privileged apt-get install -y gawk ;;
-          *) run_privileged apt-get install -y "$dep" ;;
-        esac
-      done
-      ;;
-    dnf|yum)
-      for dep in "${missing[@]}"; do
-        case "$dep" in
-          awk) run_privileged "$PKG_MANAGER" install -y gawk ;;
-          *) run_privileged "$PKG_MANAGER" install -y "$dep" ;;
-        esac
-      done
-      ;;
-    pacman)
-      run_privileged pacman -Sy --noconfirm
-      for dep in "${missing[@]}"; do
-        case "$dep" in
-          awk) run_privileged pacman -S --noconfirm gawk ;;
-          *) run_privileged pacman -S --noconfirm "$dep" ;;
-        esac
-      done
-      ;;
-    zypper)
-      for dep in "${missing[@]}"; do
-        case "$dep" in
-          awk) run_privileged zypper --non-interactive install gawk ;;
-          *) run_privileged zypper --non-interactive install "$dep" ;;
-        esac
-      done
-      ;;
-    apk)
-      for dep in "${missing[@]}"; do
-        case "$dep" in
-          awk) run_privileged apk add gawk ;;
-          *) run_privileged apk add "$dep" ;;
-        esac
-      done
-      ;;
-    *)
-      err "Unsupported package manager: $PKG_MANAGER"
-      ;;
-  esac
+  err "Missing base dependencies on macOS: ${missing[*]}. Please install Command Line Tools first: xcode-select --install"
 }
 
 python_version_ge() {
@@ -538,80 +416,11 @@ python_version_ge() {
 }
 
 install_node_runtime() {
-  detect_package_manager
-  if [[ "$OS" == "darwin" ]]; then
-    if command_exists brew || try_install_homebrew_if_needed; then
-      brew install "node@${MIN_NODE_VERSION}" || brew install node
-      brew link --overwrite --force "node@${MIN_NODE_VERSION}" >/dev/null 2>&1 || true
-    else
-      warn "No admin sudo for Homebrew. Falling back to user-local Node.js runtime."
-      install_node_runtime_userland_macos
-    fi
-    return
-  fi
-
-  [[ -n "$PKG_MANAGER" ]] || err "No supported package manager found for Node.js install."
-
-  case "$PKG_MANAGER" in
-    apt-get)
-      run_privileged apt-get update -y
-      curl -fsSL "https://deb.nodesource.com/setup_${MIN_NODE_VERSION}.x" | run_privileged bash -
-      run_privileged apt-get install -y nodejs
-      ;;
-    dnf|yum)
-      curl -fsSL "https://rpm.nodesource.com/setup_${MIN_NODE_VERSION}.x" | run_privileged bash -
-      run_privileged "$PKG_MANAGER" install -y nodejs
-      ;;
-    pacman)
-      run_privileged pacman -Sy --noconfirm nodejs npm
-      ;;
-    zypper)
-      run_privileged zypper --non-interactive install nodejs npm
-      ;;
-    apk)
-      run_privileged apk add nodejs npm
-      ;;
-    *)
-      err "Unsupported package manager for Node.js install: $PKG_MANAGER"
-      ;;
-  esac
+  install_node_runtime_userland_macos
 }
 
 install_python_runtime() {
-  detect_package_manager
-  if [[ "$OS" == "darwin" ]]; then
-    if command_exists brew || try_install_homebrew_if_needed; then
-      brew install python
-    else
-      warn "No admin sudo for Homebrew. Falling back to user-local Python runtime."
-      install_python_runtime_userland_macos
-    fi
-    return
-  fi
-
-  [[ -n "$PKG_MANAGER" ]] || err "No supported package manager found for Python install."
-
-  case "$PKG_MANAGER" in
-    apt-get)
-      run_privileged apt-get update -y
-      run_privileged apt-get install -y python3 python3-pip
-      ;;
-    dnf|yum)
-      run_privileged "$PKG_MANAGER" install -y python3 python3-pip
-      ;;
-    pacman)
-      run_privileged pacman -Sy --noconfirm python python-pip
-      ;;
-    zypper)
-      run_privileged zypper --non-interactive install python3 python3-pip
-      ;;
-    apk)
-      run_privileged apk add python3 py3-pip
-      ;;
-    *)
-      err "Unsupported package manager for Python install: $PKG_MANAGER"
-      ;;
-  esac
+  install_python_runtime_userland_macos
 }
 
 ensure_node_runtime() {
@@ -825,22 +634,13 @@ download_and_install_binary() {
   if [[ "$cleaned_url" == *.tar.gz || "$cleaned_url" == *.tgz ]]; then
     tar -xzf "$package_path" -C "$tmpdir"
   elif [[ "$cleaned_url" == *.zip ]]; then
-    if ! command_exists unzip; then
-      if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
-        err "Need unzip to extract package."
-      fi
-      detect_package_manager
-      case "$PKG_MANAGER" in
-        apt-get) run_privileged apt-get update -y && run_privileged apt-get install -y unzip ;;
-        dnf|yum) run_privileged "$PKG_MANAGER" install -y unzip ;;
-        pacman) run_privileged pacman -S --noconfirm unzip ;;
-        zypper) run_privileged zypper --non-interactive install unzip ;;
-        apk) run_privileged apk add unzip ;;
-        brew) install_homebrew_if_needed; brew install unzip ;;
-        *) err "Cannot install unzip automatically on this system." ;;
-      esac
+    if command_exists unzip; then
+      unzip -q "$package_path" -d "$tmpdir"
+    elif command_exists ditto; then
+      ditto -x -k "$package_path" "$tmpdir"
+    else
+      err "Need unzip or ditto to extract zip package on macOS."
     fi
-    unzip -q "$package_path" -d "$tmpdir"
   else
     chmod +x "$package_path"
     extracted_bin="$package_path"
@@ -1493,42 +1293,6 @@ EOF
   ln -sfn "$INSTALL_ROOT/openclow-manager.sh" "$BIN_DIR/openclow-manager"
 }
 
-configure_autostart_linux() {
-  local service_dir service_file
-  service_dir="$HOME/.config/systemd/user"
-  service_file="$service_dir/${APP_NAME}.service"
-  mkdir -p "$service_dir"
-
-  cat > "$service_file" <<EOF
-[Unit]
-Description=${APP_NAME} service
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=$INSTALL_ROOT/run-openclow.sh
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=default.target
-EOF
-
-  if command_exists systemctl; then
-    if systemctl --user daemon-reload >/dev/null 2>&1; then
-      systemctl --user enable --now "${APP_NAME}.service" || warn "Failed to start user service. You can run: systemctl --user enable --now ${APP_NAME}.service"
-      if command_exists loginctl; then
-        loginctl enable-linger "$USER" >/dev/null 2>&1 || warn "Could not enable linger for $USER. Run manually if needed: sudo loginctl enable-linger $USER"
-      fi
-      log "systemd user service enabled: ${APP_NAME}.service"
-    else
-      warn "systemctl --user is unavailable in current session; service file created at $service_file"
-    fi
-  else
-    warn "systemctl not found; service file created at $service_file"
-  fi
-}
-
 configure_autostart_macos() {
   local launch_agents plist uid
   launch_agents="$HOME/Library/LaunchAgents"
@@ -1579,11 +1343,7 @@ configure_autostart() {
     return
   fi
 
-  case "$OS" in
-    linux) configure_autostart_linux ;;
-    darwin) configure_autostart_macos ;;
-    *) warn "Unsupported autostart platform: $OS" ;;
-  esac
+  configure_autostart_macos
 }
 
 print_summary() {

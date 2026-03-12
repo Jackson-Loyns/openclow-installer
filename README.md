@@ -1,4 +1,4 @@
-# OpenClow 飞书安装说明（中国区）
+# OpenClow 飞书安装说明（中国区 / macOS）
 
 ```text
 🦞 OpenClow Installer
@@ -76,7 +76,7 @@
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-这个命令会自动完成：
+这个命令会自动完成（仅适配 macOS）：
 - 检查环境（会显示检查过程）
 - 自动安装 OpenClow
 - 在 macOS 无管理员权限时自动走用户目录安装（不依赖 sudo）
