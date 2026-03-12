@@ -3,6 +3,13 @@
 这个仓库只做一件事：
 用一条命令在 macOS 安装 OpenClow，并把飞书配置好。
 
+你发的截图已放到仓库：
+- `assets/feishu-no-connection.png`
+
+文档内直接预览：
+
+![飞书未连接示例](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/assets/feishu-no-connection.png)
+
 ## 1. 先在飞书开放平台准备好应用
 
 入口：[飞书开放平台](https://open.feishu.cn)
@@ -110,7 +117,7 @@ openclow dashboard
 
 先看下面这个典型页面（就是这个报错）：
 
-![Feishu no connection example](assets/feishu-no-connection.png)
+![Feishu no connection example](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/assets/feishu-no-connection.png)
 
 处理步骤：
 
