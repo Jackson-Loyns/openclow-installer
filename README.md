@@ -93,9 +93,10 @@ curl -fsSL "https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/m
 
 ## 3. 配置文件位置
 
-`~/.config/openclow/config.env`
+- `~/.config/openclow/config.env`（安装器输入配置）
+- `~/.config/openclow/openclaw.json`（OpenClaw 实际运行配置，会自动同步）
 
-如果要修改飞书配置，直接编辑这个文件即可。
+如果要修改飞书配置，推荐直接用 `openclow-manager` 里的「2) 设置飞书配置」。
 
 字段对应关系：
 - 飞书 `App ID` -> `FEISHU_APP_ID`
@@ -121,6 +122,8 @@ openclow-manager
 ```bash
 ~/.openclow/run-openclow.sh
 ```
+
+说明：执行「3) 启动并开启自启动」后，才会建立 OpenClaw 网关长连接；飞书后台长连接保存失败时，先确保这里已启动成功。
 
 支持：
 - 查看当前配置（自动隐藏密钥）

@@ -19,6 +19,7 @@ INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.openclow}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/openclow}"
 CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
+OPENCLAW_RUNTIME_CONFIG_FILE="${OPENCLAW_RUNTIME_CONFIG_FILE:-$CONFIG_DIR/openclaw.json}"
 RUNTIME_BIN_DIR="${RUNTIME_BIN_DIR:-$INSTALL_ROOT/runtime/bin}"
 NPM_GLOBAL_DIR="${NPM_GLOBAL_DIR:-$INSTALL_ROOT/npm-global}"
 NPM_GLOBAL_BIN_DIR="${NPM_GLOBAL_BIN_DIR:-$NPM_GLOBAL_DIR/bin}"
@@ -92,6 +93,7 @@ Options:
   --install-root <path>              Install directory (default: ~/.openclow)
   --bin-dir <path>                   Symlink directory (default: ~/.local/bin)
   --config-file <path>               Config file path (default: ~/.config/openclow/config.env)
+  --openclaw-config <path>           OpenClaw JSON config path (default: ~/.config/openclow/openclaw.json)
   --exec-name <name>                 Executable name in package (default: openclow)
   --no-autostart                     Do not enable auto-start service
   --prompt-feishu                    Prompt Feishu credentials in terminal (default on)
@@ -111,7 +113,7 @@ Options:
 Environment variables:
   INSTALL_METHOD, NPM_PACKAGE, NPM_VERSION, NPM_BIN_NAME, NPM_REGISTRY
   OPENCLOW_REPO, OPENCLOW_VERSION, OPENCLOW_DOWNLOAD_URL
-  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, AUTO_START
+  INSTALL_ROOT, BIN_DIR, CONFIG_FILE, OPENCLAW_RUNTIME_CONFIG_FILE, AUTO_START
   PROMPT_FEISHU, SKIP_DEP_INSTALL
   CHECK_NODE, CHECK_PYTHON, MIN_NODE_VERSION, MIN_PYTHON_VERSION
   FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENCRYPT_KEY, FEISHU_VERIFICATION_TOKEN
@@ -137,6 +139,7 @@ parse_args() {
         CONFIG_DIR="$(dirname "$CONFIG_FILE")"
         shift 2
         ;;
+      --openclaw-config) OPENCLAW_RUNTIME_CONFIG_FILE="$2"; shift 2 ;;
       --exec-name) OPENCLOW_EXECUTABLE="$2"; shift 2 ;;
       --no-autostart) AUTO_START="false"; shift ;;
       --non-interactive) NON_INTERACTIVE="true"; shift ;;
@@ -629,7 +632,7 @@ run_npm_install_with_progress() {
 }
 
 install_with_npm() {
-  local pkg spec npm_bin
+  local pkg spec npm_bin node_bin npm_entry
   pkg="$NPM_PACKAGE"
   spec="${pkg}@${NPM_VERSION}"
 
@@ -652,6 +655,8 @@ install_with_npm() {
   fi
 
   npm_bin="$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME"
+  node_bin="$(command -v node || true)"
+  npm_entry="$NPM_GLOBAL_DIR/lib/node_modules/$NPM_PACKAGE/openclaw.mjs"
   [[ -x "$npm_bin" ]] || npm_bin="$(command -v "$NPM_BIN_NAME" || true)"
   [[ -n "$npm_bin" ]] || err "Installed package but CLI '$NPM_BIN_NAME' not found."
 
@@ -659,6 +664,12 @@ install_with_npm() {
   cat > "$INSTALL_ROOT/bin/$APP_NAME" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -x "$node_bin" ]]; then
+  export PATH="$(dirname "$node_bin"):\$PATH"
+fi
+if [[ -x "$node_bin" && -f "$npm_entry" ]]; then
+  exec "$node_bin" "$npm_entry" "\$@"
+fi
 if [[ -x "$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME" ]]; then
   exec "$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME" "\$@"
 fi
@@ -799,17 +810,90 @@ EOF
   log "Wrote config: $CONFIG_FILE"
 }
 
+write_openclaw_runtime_config() {
+  mkdir -p "$(dirname "$OPENCLAW_RUNTIME_CONFIG_FILE")"
+
+  if ! command_exists python3; then
+    warn "python3 not found; skip writing OpenClaw runtime config: $OPENCLAW_RUNTIME_CONFIG_FILE"
+    return 0
+  fi
+
+  OPENCLAW_RUNTIME_CONFIG_FILE="$OPENCLAW_RUNTIME_CONFIG_FILE" \
+  FEISHU_APP_ID="$FEISHU_APP_ID" \
+  FEISHU_APP_SECRET="$FEISHU_APP_SECRET" \
+  FEISHU_VERIFICATION_TOKEN="$FEISHU_VERIFICATION_TOKEN" \
+  FEISHU_BOT_NAME="$FEISHU_BOT_NAME" \
+  FEISHU_BOT_AVATAR="$FEISHU_BOT_AVATAR" \
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+config_path = Path(os.environ["OPENCLAW_RUNTIME_CONFIG_FILE"]).expanduser()
+config_path.parent.mkdir(parents=True, exist_ok=True)
+
+cfg = {}
+if config_path.exists():
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+
+gateway = cfg.setdefault("gateway", {})
+gateway["mode"] = "local"
+
+channels = cfg.setdefault("channels", {})
+feishu = channels.setdefault("feishu", {})
+feishu["enabled"] = True
+feishu["connectionMode"] = "websocket"
+feishu["defaultAccount"] = "default"
+
+accounts = feishu.setdefault("accounts", {})
+account = accounts.setdefault("default", {})
+account["appId"] = os.environ.get("FEISHU_APP_ID", "")
+account["appSecret"] = os.environ.get("FEISHU_APP_SECRET", "")
+
+bot_name = os.environ.get("FEISHU_BOT_NAME", "").strip()
+if bot_name:
+    account["botName"] = bot_name
+
+bot_avatar = os.environ.get("FEISHU_BOT_AVATAR", "").strip()
+if bot_avatar:
+    account["avatarUrl"] = bot_avatar
+
+verification_token = os.environ.get("FEISHU_VERIFICATION_TOKEN", "").strip()
+if verification_token:
+    feishu["verificationToken"] = verification_token
+
+config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+
+  log "Wrote OpenClaw runtime config: $OPENCLAW_RUNTIME_CONFIG_FILE"
+}
+
 write_runner() {
   cat > "$INSTALL_ROOT/run-openclow.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ -f "$CONFIG_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$CONFIG_FILE"
-  set +a
+  while IFS= read -r line || [[ -n "\$line" ]]; do
+    [[ -n "\$line" ]] || continue
+    [[ "\$line" =~ ^[[:space:]]*# ]] && continue
+    case "\$line" in
+      *=*)
+        key="\${line%%=*}"
+        val="\${line#*=}"
+        [[ "\$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        [[ -n "\$key" ]] || continue
+        export "\$key=\$val"
+        ;;
+      *)
+        ;;
+    esac
+  done < "$CONFIG_FILE"
 fi
-exec "$INSTALL_ROOT/bin/$APP_NAME"
+export OPENCLAW_CONFIG_PATH="$OPENCLAW_RUNTIME_CONFIG_FILE"
+exec "$INSTALL_ROOT/bin/$APP_NAME" gateway run --allow-unconfigured
 EOF
   chmod +x "$INSTALL_ROOT/run-openclow.sh"
 }
@@ -821,6 +905,7 @@ set -euo pipefail
 
 APP_NAME="$APP_NAME"
 CONFIG_FILE="$CONFIG_FILE"
+OPENCLAW_RUNTIME_CONFIG_FILE="$OPENCLAW_RUNTIME_CONFIG_FILE"
 INSTALL_ROOT="$INSTALL_ROOT"
 BIN_DIR="$BIN_DIR"
 OS="\$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -934,6 +1019,75 @@ write_cfg_key() {
   chmod 600 "\$CONFIG_FILE"
 }
 
+sync_openclaw_runtime_config() {
+  local app_id app_secret verify_token bot_name bot_avatar
+  app_id="\$(read_cfg FEISHU_APP_ID)"
+  app_secret="\$(read_cfg FEISHU_APP_SECRET)"
+  verify_token="\$(read_cfg FEISHU_VERIFICATION_TOKEN)"
+  bot_name="\$(read_cfg FEISHU_BOT_NAME)"
+  bot_avatar="\$(read_cfg FEISHU_BOT_AVATAR)"
+
+  [[ -n "\$app_id" ]] || { echo "[WARN] FEISHU_APP_ID 为空，跳过同步 OpenClaw JSON 配置"; return 1; }
+  [[ -n "\$app_secret" ]] || { echo "[WARN] FEISHU_APP_SECRET 为空，跳过同步 OpenClaw JSON 配置"; return 1; }
+
+  if ! command_exists python3; then
+    echo "[WARN] python3 未安装，无法同步 OpenClaw JSON 配置"
+    return 1
+  fi
+
+  OPENCLAW_RUNTIME_CONFIG_FILE="\$OPENCLAW_RUNTIME_CONFIG_FILE" \
+  FEISHU_APP_ID="\$app_id" \
+  FEISHU_APP_SECRET="\$app_secret" \
+  FEISHU_VERIFICATION_TOKEN="\$verify_token" \
+  FEISHU_BOT_NAME="\$bot_name" \
+  FEISHU_BOT_AVATAR="\$bot_avatar" \
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+config_path = Path(os.environ["OPENCLAW_RUNTIME_CONFIG_FILE"]).expanduser()
+config_path.parent.mkdir(parents=True, exist_ok=True)
+
+cfg = {}
+if config_path.exists():
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+
+gateway = cfg.setdefault("gateway", {})
+gateway["mode"] = "local"
+
+channels = cfg.setdefault("channels", {})
+feishu = channels.setdefault("feishu", {})
+feishu["enabled"] = True
+feishu["connectionMode"] = "websocket"
+feishu["defaultAccount"] = "default"
+
+accounts = feishu.setdefault("accounts", {})
+account = accounts.setdefault("default", {})
+account["appId"] = os.environ.get("FEISHU_APP_ID", "")
+account["appSecret"] = os.environ.get("FEISHU_APP_SECRET", "")
+
+bot_name = os.environ.get("FEISHU_BOT_NAME", "").strip()
+if bot_name:
+    account["botName"] = bot_name
+
+bot_avatar = os.environ.get("FEISHU_BOT_AVATAR", "").strip()
+if bot_avatar:
+    account["avatarUrl"] = bot_avatar
+
+verification_token = os.environ.get("FEISHU_VERIFICATION_TOKEN", "").strip()
+if verification_token:
+    feishu["verificationToken"] = verification_token
+
+config_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+
+  echo "[INFO] OpenClaw JSON 配置已同步: \$OPENCLAW_RUNTIME_CONFIG_FILE"
+}
+
 configure_feishu() {
   local app_id app_secret encrypt_key verify_token bot_name bot_avatar
   app_id="\$(read_cfg FEISHU_APP_ID)"
@@ -961,6 +1115,7 @@ configure_feishu() {
   write_cfg_key FEISHU_BOT_NAME "\${bot_name:-OpenClow Bot}"
   write_cfg_key FEISHU_BOT_AVATAR "\$bot_avatar"
   write_cfg_key OPENCLOW_HOME "$INSTALL_ROOT"
+  sync_openclaw_runtime_config || true
   echo "[INFO] 配置已保存到 \$CONFIG_FILE"
 }
 
@@ -976,6 +1131,7 @@ show_config() {
   echo "  FEISHU_BOT_NAME: \$bot_name"
   echo "  FEISHU_BOT_AVATAR: \$bot_avatar"
   echo "  CONFIG_FILE: \$CONFIG_FILE"
+  echo "  OPENCLAW_CONFIG_PATH: \$OPENCLAW_RUNTIME_CONFIG_FILE"
   echo
 }
 
@@ -1139,6 +1295,7 @@ MAC_EOF
 }
 
 service_enable_autostart() {
+  sync_openclaw_runtime_config || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user enable --now "\$SERVICE_NAME"; then
@@ -1185,6 +1342,7 @@ service_pause() {
 }
 
 service_resume() {
+  sync_openclaw_runtime_config || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user start "\$SERVICE_NAME"; then
@@ -1205,6 +1363,7 @@ service_resume() {
 }
 
 service_restart() {
+  sync_openclaw_runtime_config || true
   ensure_service_definition || true
   if [[ "\$OS" == "linux" ]] && command_exists systemctl; then
     if ! systemctl --user restart "\$SERVICE_NAME"; then
@@ -1438,6 +1597,7 @@ Install complete.
 - Install root: $INSTALL_ROOT
 - Binary link: $BIN_DIR/$APP_NAME
 - Config file: $CONFIG_FILE
+- OpenClaw config: $OPENCLAW_RUNTIME_CONFIG_FILE
 - Install method: $INSTALL_METHOD
 - Repo: $OPENCLOW_REPO
 - Version: ${RESOLVED_VERSION:-custom-url}
@@ -1508,6 +1668,7 @@ main() {
 
   step "写入配置并生成管理命令"
   write_config
+  write_openclaw_runtime_config
   configure_autostart
 
   step "安装完成"
