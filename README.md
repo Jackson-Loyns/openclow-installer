@@ -134,6 +134,7 @@ openclow-manager
 在管理器里：
 - 先用 `2) 设置飞书/模型配置`
 - 再用 `3) 启动并开启自启动`
+- 执行 `3` 后会自动打开控制台页面（带 token）
 - 后续可用数字 `1-10` 直接操作，不需要方向键
 
 ## 5) 关键配置文件
@@ -181,3 +182,11 @@ openclow-manager
 ```bash
 ~/.local/bin/openclow-manager
 ```
+
+5. 页面提示 `unauthorized: gateway token missing`
+- 不要手动输入 `http://127.0.0.1:18789/`。
+- 正确打开方式是执行：
+```bash
+openclow dashboard
+```
+- 该命令会自动带上网关 token 并打开浏览器。

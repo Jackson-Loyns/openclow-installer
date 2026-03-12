@@ -1719,6 +1719,21 @@ MAC_EOF
   return 1
 }
 
+launchd_start_service() {
+  local domain label
+  domain="gui/\$CUR_UID"
+  label="com.\${APP_NAME}.agent"
+  launchctl bootstrap "\$domain" "\$PLIST" >/dev/null 2>&1 || true
+  launchctl enable "\$domain/\$label" >/dev/null 2>&1 || true
+  if launchctl kickstart -k "\$domain/\$label" >/dev/null 2>&1; then
+    return 0
+  fi
+  launchctl bootout "\$domain/\$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "\$domain" "\$PLIST" >/dev/null 2>&1 || true
+  launchctl enable "\$domain/\$label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "\$domain/\$label" >/dev/null 2>&1
+}
+
 service_enable_autostart() {
   sync_openclaw_runtime_config || true
   ensure_feishu_plugin_enabled || true
@@ -1729,9 +1744,7 @@ service_enable_autostart() {
       return 1
     fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
-    launchctl enable "gui/\$CUR_UID/com.\${APP_NAME}.agent" >/dev/null 2>&1 || true
-    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+    if ! launchd_start_service; then
       echo "[ERROR] 启动失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
       return 1
     fi
@@ -1741,6 +1754,7 @@ service_enable_autostart() {
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 已启动并开启自启动"
   show_startup_snapshot
+  open_dashboard_after_start
 }
 
 service_disable_autostart() {
@@ -1778,8 +1792,7 @@ service_resume() {
       return 1
     fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    launchctl bootstrap "gui/\$CUR_UID" "\$PLIST" >/dev/null 2>&1 || true
-    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+    if ! launchd_start_service; then
       echo "[ERROR] 恢复失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
       return 1
     fi
@@ -1789,6 +1802,7 @@ service_resume() {
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 已恢复服务"
   show_startup_snapshot
+  open_dashboard_after_start
 }
 
 service_restart() {
@@ -1801,7 +1815,7 @@ service_restart() {
       return 1
     fi
   elif [[ "\$OS" == "darwin" ]] && command_exists launchctl; then
-    if ! launchctl kickstart -k "gui/\$CUR_UID/com.\${APP_NAME}.agent"; then
+    if ! launchd_start_service; then
       echo "[ERROR] 重启失败，请执行: launchctl print gui/\$CUR_UID/com.\${APP_NAME}.agent"
       return 1
     fi
@@ -1811,6 +1825,7 @@ service_restart() {
   fi
   echo -e "\${C_GREEN}[OK]\${C_RESET} 服务已重启"
   show_startup_snapshot
+  open_dashboard_after_start
 }
 
 service_status() {
@@ -1848,6 +1863,21 @@ show_startup_snapshot() {
   echo "[INFO] 服务以后台模式运行，下面显示最近启动日志："
   show_logs
   print_realtime_log_hint
+}
+
+open_dashboard_after_start() {
+  local cli
+  cli="\$BIN_DIR/\$APP_NAME"
+  if [[ ! -x "\$cli" ]]; then
+    echo "[WARN] 未找到控制台命令: \$cli"
+    return 0
+  fi
+  echo "[INFO] 正在自动打开控制台页面（带网关 token）..."
+  if "\$cli" dashboard; then
+    return 0
+  fi
+  echo "[WARN] 自动打开失败，可手动执行:"
+  echo "  \$cli dashboard"
 }
 
 delete_openclow() {
@@ -2102,6 +2132,27 @@ launch_manager_after_install() {
   fi
 }
 
+auto_open_dashboard_after_install() {
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    return
+  fi
+  if [[ "$AUTO_START" != "true" ]]; then
+    return
+  fi
+  if [[ ! -t 1 && ! -r /dev/tty ]]; then
+    return
+  fi
+  if [[ ! -x "$BIN_DIR/$APP_NAME" ]]; then
+    return
+  fi
+  printf '\n[INFO] 安装完成，正在自动打开控制台页面（带网关 token）...\n'
+  if [[ -r /dev/tty ]]; then
+    "$BIN_DIR/$APP_NAME" dashboard < /dev/tty > /dev/tty 2>&1 || warn "Auto open dashboard failed. Run: $BIN_DIR/$APP_NAME dashboard"
+  else
+    "$BIN_DIR/$APP_NAME" dashboard || warn "Auto open dashboard failed. Run: $BIN_DIR/$APP_NAME dashboard"
+  fi
+}
+
 main() {
   parse_args "$@"
   normalize_settings
@@ -2139,6 +2190,7 @@ main() {
 
   step "安装完成"
   print_summary
+  auto_open_dashboard_after_install
   launch_manager_after_install
 }
 
