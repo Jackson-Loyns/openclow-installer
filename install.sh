@@ -18,6 +18,9 @@ INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.openclow}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/openclow}"
 CONFIG_FILE="${CONFIG_FILE:-$CONFIG_DIR/config.env}"
+RUNTIME_BIN_DIR="${RUNTIME_BIN_DIR:-$INSTALL_ROOT/runtime/bin}"
+NPM_GLOBAL_DIR="${NPM_GLOBAL_DIR:-$INSTALL_ROOT/npm-global}"
+NPM_GLOBAL_BIN_DIR="${NPM_GLOBAL_BIN_DIR:-$NPM_GLOBAL_DIR/bin}"
 
 AUTO_START="${AUTO_START:-true}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
@@ -56,6 +59,10 @@ err() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 step() {
   STEP_INDEX=$((STEP_INDEX + 1))
   printf '\n[STEP %d] %s\n' "$STEP_INDEX" "$*"
+}
+
+activate_local_paths() {
+  export PATH="$RUNTIME_BIN_DIR:$NPM_GLOBAL_BIN_DIR:$BIN_DIR:$HOME/.local/bin:$PATH"
 }
 
 print_lobster_banner() {
@@ -199,6 +206,16 @@ run_privileged() {
   err "Need root privileges for dependency install, but sudo is not available."
 }
 
+has_admin_sudo() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 0
+  fi
+  if ! command_exists sudo; then
+    return 1
+  fi
+  sudo -n true >/dev/null 2>&1
+}
+
 detect_platform() {
   local uname_s uname_m
   uname_s="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -219,7 +236,11 @@ detect_platform() {
 
 detect_package_manager() {
   if [[ "$OS" == "darwin" ]]; then
-    PKG_MANAGER="brew"
+    if command_exists brew; then
+      PKG_MANAGER="brew"
+    else
+      PKG_MANAGER=""
+    fi
     return
   fi
 
@@ -329,15 +350,18 @@ preflight_checks() {
   print_preflight_report
 }
 
-install_homebrew_if_needed() {
+try_install_homebrew_if_needed() {
   if command_exists brew; then
-    return
+    return 0
   fi
   if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
-    err "Homebrew is required on macOS for auto dependency install. Install brew manually or remove --skip-deps."
+    return 1
+  fi
+  if ! has_admin_sudo; then
+    return 1
   fi
   log "Homebrew not found, installing Homebrew..."
-  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || return 1
   if ! command_exists brew; then
     if [[ -x /opt/homebrew/bin/brew ]]; then
       eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -345,7 +369,74 @@ install_homebrew_if_needed() {
       eval "$(/usr/local/bin/brew shellenv)"
     fi
   fi
-  command_exists brew || err "Homebrew install failed."
+  command_exists brew
+}
+
+install_homebrew_if_needed() {
+  if try_install_homebrew_if_needed; then
+    return
+  fi
+  err "Homebrew install failed, and no usable admin sudo was detected on macOS."
+}
+
+install_node_runtime_userland_macos() {
+  local node_arch node_tag node_url tmpdir extract_dir
+  case "$ARCH" in
+    arm64) node_arch="arm64" ;;
+    amd64) node_arch="x64" ;;
+    *) err "Unsupported macOS arch for user-local Node.js runtime: $ARCH" ;;
+  esac
+
+  node_tag="$(curl -fsSL "https://nodejs.org/dist/index.json" | sed -n "s/.*\"version\":\"\\(v${MIN_NODE_VERSION}\\.[0-9][0-9]*\\.[0-9][0-9]*\\)\".*/\\1/p" | head -n1)"
+  [[ -n "$node_tag" ]] || err "Cannot resolve a Node.js v${MIN_NODE_VERSION}.x release from nodejs.org."
+
+  node_url="https://nodejs.org/dist/${node_tag}/node-${node_tag}-darwin-${node_arch}.tar.gz"
+  log "Installing user-local Node.js runtime from ${node_url}"
+
+  tmpdir="$(mktemp -d)"
+  curl -fL "$node_url" -o "$tmpdir/node.tar.gz"
+  tar -xzf "$tmpdir/node.tar.gz" -C "$tmpdir"
+  extract_dir="$(find "$tmpdir" -maxdepth 1 -type d -name "node-${node_tag}-darwin-${node_arch}" | head -n1 || true)"
+  if [[ -z "$extract_dir" ]]; then
+    rm -rf "$tmpdir"
+    err "Failed to extract user-local Node.js runtime."
+  fi
+
+  mkdir -p "$INSTALL_ROOT/runtime" "$RUNTIME_BIN_DIR"
+  rm -rf "$INSTALL_ROOT/runtime/node"
+  cp -R "$extract_dir" "$INSTALL_ROOT/runtime/node"
+  rm -rf "$tmpdir"
+  ln -sfn "$INSTALL_ROOT/runtime/node/bin/node" "$RUNTIME_BIN_DIR/node"
+  ln -sfn "$INSTALL_ROOT/runtime/node/bin/npm" "$RUNTIME_BIN_DIR/npm"
+  ln -sfn "$INSTALL_ROOT/runtime/node/bin/npx" "$RUNTIME_BIN_DIR/npx"
+  activate_local_paths
+}
+
+install_python_runtime_userland_macos() {
+  local uv_bin py_exec
+  activate_local_paths
+  uv_bin="$(command -v uv || true)"
+  if [[ -z "$uv_bin" ]]; then
+    log "Installing uv (user-local) to provision Python..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    activate_local_paths
+    uv_bin="$(command -v uv || true)"
+  fi
+  [[ -n "$uv_bin" ]] || err "uv install failed; cannot provision Python in user space."
+
+  "$uv_bin" python install "$MIN_PYTHON_VERSION"
+  py_exec="$("$uv_bin" python find "$MIN_PYTHON_VERSION" 2>/dev/null | head -n1 || true)"
+  [[ -n "$py_exec" && -x "$py_exec" ]] || err "uv installed Python but executable was not found."
+
+  mkdir -p "$RUNTIME_BIN_DIR"
+  ln -sfn "$py_exec" "$RUNTIME_BIN_DIR/python3"
+  "$RUNTIME_BIN_DIR/python3" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  cat > "$RUNTIME_BIN_DIR/pip3" <<EOF
+#!/usr/bin/env bash
+exec "$RUNTIME_BIN_DIR/python3" -m pip "\$@"
+EOF
+  chmod +x "$RUNTIME_BIN_DIR/pip3"
+  activate_local_paths
 }
 
 install_missing_deps() {
@@ -449,9 +540,13 @@ python_version_ge() {
 install_node_runtime() {
   detect_package_manager
   if [[ "$OS" == "darwin" ]]; then
-    install_homebrew_if_needed
-    brew install "node@${MIN_NODE_VERSION}" || brew install node
-    brew link --overwrite --force "node@${MIN_NODE_VERSION}" >/dev/null 2>&1 || true
+    if command_exists brew || try_install_homebrew_if_needed; then
+      brew install "node@${MIN_NODE_VERSION}" || brew install node
+      brew link --overwrite --force "node@${MIN_NODE_VERSION}" >/dev/null 2>&1 || true
+    else
+      warn "No admin sudo for Homebrew. Falling back to user-local Node.js runtime."
+      install_node_runtime_userland_macos
+    fi
     return
   fi
 
@@ -485,8 +580,12 @@ install_node_runtime() {
 install_python_runtime() {
   detect_package_manager
   if [[ "$OS" == "darwin" ]]; then
-    install_homebrew_if_needed
-    brew install python
+    if command_exists brew || try_install_homebrew_if_needed; then
+      brew install python
+    else
+      warn "No admin sudo for Homebrew. Falling back to user-local Python runtime."
+      install_python_runtime_userland_macos
+    fi
     return
   fi
 
@@ -637,19 +736,38 @@ resolve_download_url() {
 }
 
 ensure_path_export() {
-  local rc
+  local rc updated runtime_export npm_global_export bin_export
+  runtime_export="export PATH=\"$RUNTIME_BIN_DIR:\$PATH\""
+  npm_global_export="export PATH=\"$NPM_GLOBAL_BIN_DIR:\$PATH\""
+  bin_export="export PATH=\"$BIN_DIR:\$PATH\""
   for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
+    updated="false"
     [[ -f "$rc" ]] || continue
+    if [[ -d "$RUNTIME_BIN_DIR" ]] && ! grep -q "$RUNTIME_BIN_DIR" "$rc"; then
+      printf '\n%s\n' "$runtime_export" >> "$rc"
+      updated="true"
+    fi
+    if [[ -d "$NPM_GLOBAL_BIN_DIR" ]] && ! grep -q "$NPM_GLOBAL_BIN_DIR" "$rc"; then
+      printf '\n%s\n' "$npm_global_export" >> "$rc"
+      updated="true"
+    fi
     if ! grep -q "$BIN_DIR" "$rc"; then
-      printf '\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$rc"
-      log "Added PATH export to $rc"
+      printf '\n%s\n' "$bin_export" >> "$rc"
+      updated="true"
+    fi
+    if [[ "$updated" == "true" ]]; then
+      log "Updated PATH export in $rc"
       return
     fi
   done
 
   if [[ ! -f "$HOME/.profile" ]]; then
-    printf 'export PATH="%s:$PATH"\n' "$BIN_DIR" > "$HOME/.profile"
-    log "Created $HOME/.profile with PATH export"
+    {
+      printf '%s\n' "$runtime_export"
+      printf '%s\n' "$npm_global_export"
+      printf '%s\n' "$bin_export"
+    } > "$HOME/.profile"
+    log "Created $HOME/.profile with PATH exports"
   fi
 }
 
@@ -658,27 +776,26 @@ install_with_npm() {
   pkg="$NPM_PACKAGE"
   spec="${pkg}@${NPM_VERSION}"
 
+  activate_local_paths
   command_exists npm || err "npm not found. Node.js install seems incomplete."
 
   log "Installing via npm: $spec"
-  if ! npm install -g "$spec"; then
-    if [[ "$SKIP_DEP_INSTALL" == "true" ]]; then
-      err "npm install failed for $spec."
-    fi
-    if command_exists sudo; then
-      run_privileged npm install -g "$spec"
-    else
-      err "npm install failed and sudo is unavailable."
-    fi
+  mkdir -p "$NPM_GLOBAL_DIR" "$NPM_GLOBAL_BIN_DIR"
+  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" "$spec"; then
+    err "npm install failed for $spec (user-local prefix: $NPM_GLOBAL_DIR)."
   fi
 
-  npm_bin="$(command -v "$NPM_BIN_NAME" || true)"
-  [[ -n "$npm_bin" ]] || err "Installed package but CLI '$NPM_BIN_NAME' not found in PATH."
+  npm_bin="$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME"
+  [[ -x "$npm_bin" ]] || npm_bin="$(command -v "$NPM_BIN_NAME" || true)"
+  [[ -n "$npm_bin" ]] || err "Installed package but CLI '$NPM_BIN_NAME' not found."
 
   mkdir -p "$INSTALL_ROOT/bin" "$BIN_DIR"
   cat > "$INSTALL_ROOT/bin/$APP_NAME" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -x "$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME" ]]; then
+  exec "$NPM_GLOBAL_BIN_DIR/$NPM_BIN_NAME" "\$@"
+fi
 if command -v "$NPM_BIN_NAME" >/dev/null 2>&1; then
   exec "\$(command -v "$NPM_BIN_NAME")" "\$@"
 fi
@@ -1523,6 +1640,7 @@ main() {
   normalize_settings
   validate_settings
   print_lobster_banner
+  activate_local_paths
 
   step "检测系统信息"
   detect_platform
