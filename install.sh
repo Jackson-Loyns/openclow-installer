@@ -56,6 +56,8 @@ NODE_NEEDS_INSTALL="false"
 PYTHON_STATUS="unknown"
 PYTHON_VERSION=""
 PYTHON_NEEDS_INSTALL="false"
+FEISHU_SDK_VERSION="not-installed"
+FEISHU_SDK_LOCATION="not-installed"
 
 log() { printf '[INFO] %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*" >&2; }
@@ -532,6 +534,68 @@ ensure_python_runtime() {
     install_python_runtime
   fi
   log "Python OK: $(python3 --version 2>&1), pip: $(python3 -m pip --version | awk '{print $2}')"
+}
+
+ensure_feishu_python_sdk() {
+  local pip_log sdk_ver sdk_install_rc sdk_venv sdk_python
+  if [[ "$CHECK_PYTHON" != "true" ]]; then
+    FEISHU_SDK_VERSION="skipped"
+    FEISHU_SDK_LOCATION="skipped"
+    log "CHECK_PYTHON=false, skip lark-oapi install."
+    return
+  fi
+  if ! command_exists python3; then
+    FEISHU_SDK_VERSION="python-missing"
+    FEISHU_SDK_LOCATION="python-missing"
+    warn "python3 not found, skip lark-oapi install."
+    return
+  fi
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    FEISHU_SDK_VERSION="pip-missing"
+    FEISHU_SDK_LOCATION="pip-missing"
+    warn "pip for python3 missing, skip lark-oapi install."
+    return
+  fi
+
+  pip_log="$(mktemp)"
+  log "Installing Feishu Python SDK: lark-oapi (pip -U)"
+  if PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install -U lark-oapi >"$pip_log" 2>&1; then
+    sdk_install_rc=0
+  else
+    sdk_install_rc=$?
+  fi
+
+  if [[ "${sdk_install_rc:-0}" -eq 0 ]]; then
+    sdk_ver="$(python3 -m pip show lark-oapi 2>/dev/null | awk '/^Version:/{print $2}' | head -n1 || true)"
+    if [[ -n "$sdk_ver" ]]; then
+      FEISHU_SDK_VERSION="$sdk_ver"
+      FEISHU_SDK_LOCATION="system-python"
+      log "lark-oapi installed: $sdk_ver"
+    else
+      FEISHU_SDK_VERSION="installed"
+      FEISHU_SDK_LOCATION="system-python"
+      log "lark-oapi installed."
+    fi
+  else
+    sdk_venv="$INSTALL_ROOT/py-sdk"
+    sdk_python="$sdk_venv/bin/python"
+    warn "System pip install failed. Trying isolated venv: $sdk_venv"
+    rm -rf "$sdk_venv"
+    if python3 -m venv "$sdk_venv" >/dev/null 2>&1 \
+      && "$sdk_python" -m pip install -U pip >/dev/null 2>&1 \
+      && PIP_DISABLE_PIP_VERSION_CHECK=1 "$sdk_python" -m pip install -U lark-oapi >/dev/null 2>&1; then
+      sdk_ver="$("$sdk_python" -m pip show lark-oapi 2>/dev/null | awk '/^Version:/{print $2}' | head -n1 || true)"
+      FEISHU_SDK_VERSION="${sdk_ver:-installed}"
+      FEISHU_SDK_LOCATION="$sdk_venv"
+      log "lark-oapi installed in isolated venv: ${sdk_ver:-installed}"
+    else
+      FEISHU_SDK_VERSION="install-failed"
+      FEISHU_SDK_LOCATION="failed"
+      warn "lark-oapi install failed. Recent system-pip logs:"
+      tail -n 40 "$pip_log" >&2 || true
+    fi
+  fi
+  rm -f "$pip_log"
 }
 
 fetch_latest_version() {
@@ -2058,9 +2122,11 @@ configure_autostart() {
 }
 
 print_summary() {
-  local node_info python_info start_cmd shell_reload_cmd model_provider_text model_key_text
+  local node_info python_info start_cmd shell_reload_cmd model_provider_text model_key_text sdk_info sdk_location
   node_info="$(command -v node >/dev/null 2>&1 && node -v || echo skipped)"
   python_info="$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || echo skipped)"
+  sdk_info="$FEISHU_SDK_VERSION"
+  sdk_location="$FEISHU_SDK_LOCATION"
   start_cmd="$INSTALL_ROOT/run-openclow.sh"
   shell_reload_cmd="source ~/.zshrc"
   if [[ "$MODEL_PROVIDER" == "aliyun-bailian" ]]; then
@@ -2090,6 +2156,8 @@ Install complete.
 - Download URL: $RESOLVED_DOWNLOAD_URL
 - Node.js: $node_info
 - Python: $python_info
+- Feishu SDK (lark-oapi): $sdk_info
+- Feishu SDK location: $sdk_location
 - Model provider: $model_provider_text
 - Model API Key: $model_key_text
 
@@ -2171,6 +2239,7 @@ main() {
   step "检查并安装 Node.js / Python"
   ensure_node_runtime
   ensure_python_runtime
+  ensure_feishu_python_sdk
 
   step "安装 OpenClow"
   if [[ "$INSTALL_METHOD" == "npm" ]]; then
