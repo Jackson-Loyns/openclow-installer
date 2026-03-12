@@ -595,6 +595,48 @@ ensure_path_export() {
   fi
 }
 
+run_npm_install_with_progress() {
+  local log_file pid rc spin_idx elapsed spinner_char last_line start_ts
+  log_file="$(mktemp)"
+  start_ts="$(date +%s)"
+
+  if [[ -t 1 ]]; then
+    npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund --registry "$NPM_REGISTRY" "$1" >"$log_file" 2>&1 &
+    pid=$!
+    spin_idx=0
+    while kill -0 "$pid" >/dev/null 2>&1; do
+      elapsed=$(( $(date +%s) - start_ts ))
+      last_line="$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\r' || true)"
+      case $((spin_idx % 4)) in
+        0) spinner_char='|' ;;
+        1) spinner_char='/' ;;
+        2) spinner_char='-' ;;
+        *) spinner_char='\\' ;;
+      esac
+      printf '\r[INFO] npm installing... %s %ss %s' "$spinner_char" "$elapsed" "${last_line:0:90}"
+      spin_idx=$((spin_idx + 1))
+      sleep 1
+    done
+    wait "$pid" || rc=$?
+    rc="${rc:-0}"
+    printf '\n'
+  else
+    npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund --registry "$NPM_REGISTRY" "$1" >"$log_file" 2>&1 || rc=$?
+    rc="${rc:-0}"
+  fi
+
+  if [[ "$rc" -ne 0 ]]; then
+    warn "npm install failed. Recent logs:"
+    tail -n 60 "$log_file" >&2 || true
+    rm -f "$log_file"
+    return "$rc"
+  fi
+
+  tail -n 6 "$log_file" || true
+  rm -f "$log_file"
+  return 0
+}
+
 install_with_npm() {
   local pkg spec npm_bin
   pkg="$NPM_PACKAGE"
@@ -614,7 +656,7 @@ install_with_npm() {
   log "npm registry: $NPM_REGISTRY"
   log "This may take several minutes on first run (downloading npm dependencies)..."
   mkdir -p "$NPM_GLOBAL_DIR" "$NPM_GLOBAL_BIN_DIR"
-  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund --registry "$NPM_REGISTRY" "$spec"; then
+  if ! run_npm_install_with_progress "$spec"; then
     err "npm install failed for $spec (user-local prefix: $NPM_GLOBAL_DIR)."
   fi
 
