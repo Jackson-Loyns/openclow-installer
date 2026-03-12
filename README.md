@@ -1,21 +1,20 @@
-# OpenClow 一键安装与飞书接入（macOS / 中国区）
+# OpenClow 安装与飞书接入（macOS，中国区）
 
-```text
-🦞 OpenClow Installer
-```
+这个仓库只做一件事：
+用一条命令在 macOS 安装 OpenClow，并把飞书配置好。
 
-## 1) 先在飞书开放平台完成应用配置
+## 1. 先在飞书开放平台准备好应用
 
-平台地址：[飞书开放平台](https://open.feishu.cn)
+入口：[飞书开放平台](https://open.feishu.cn)
 
 按顺序操作：
 
-1. 创建「企业自建应用」
-2. 在「应用能力」里开启机器人
-3. 在「权限管理」里批量导入权限 JSON（见下方）
-4. 在「开发配置」里把消息接收模式设为「长连接」
-5. 添加事件：`im.message.receive_v1`
-6. 发布应用（版本管理与发布）
+1. 创建企业自建应用
+2. 开启 Bot（机器人能力）
+3. 在「Permissions & Scopes」导入权限
+4. 在「Events & Callbacks」选择 **persistent connection**（长连接）
+5. 添加事件 `im.message.receive_v1`
+6. 发布应用版本
 7. 复制 `App ID` 和 `App Secret`
 
 权限 JSON：
@@ -56,137 +55,101 @@
 }
 ```
 
-打卡清单：
-- [ ] 权限已保存并提交
-- [ ] 管理员已审批
-- [ ] 长连接已开启
-- [ ] 事件 `im.message.receive_v1` 已添加
-- [ ] 应用已发布
-
-## 2) 一条命令安装（就是这一条）
+## 2. 安装（只需要这一条命令）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh | bash -s --
 ```
 
-安装脚本地址（可点击）：[openclow-installer/install.sh](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh)
+脚本地址（可点开）：[install.sh](https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/main/install.sh)
 
-安装器会自动完成：
-- 环境检查（Node/Python/git）并显示检查过程
-- 自动安装缺失环境（仅 macOS）
+安装脚本会自动：
+- 检查并安装 Node / Python（仅 macOS）
 - 安装 OpenClow
-- 询问飞书 `App ID / App Secret`
-- 询问模型厂商（默认阿里百炼）
-- 生成并启动 `openclow-manager`
+- 让你输入飞书 `App ID / App Secret`
+- 让你选择模型厂商（默认阿里百炼）
+- 生成 `openclow-manager`
 
-## 3) 模型厂商配置（默认阿里百炼）
+## 3. 安装完成后怎么用
 
-阿里百炼入口（Coding Plan）：
-[阿里百炼 Coding Plan 控制台](https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail)
-
-为什么推荐：
-- 一个 API Key 接多模型
-- 代码、长文本、Agent 都能覆盖
-- 安装器自动写好智能路由，减少手动调参
-
-你的套餐参考：
-
-| 模型 | PinchBench 排名 | 上下文 | 最佳场景 |
-| --- | --- | --- | --- |
-| MiniMax-M2.5 | 🥈 #2 级别 | 196K | Agent 任务、多步骤工作流 |
-| Kimi-K2.5 | 🥉 #3 级别 | 262K | 通用对话、图片分析 |
-| Qwen3.5-Plus | 高性能 | 1000K | 长文本总结 |
-| Qwen3-Coder-Plus | 代码专家 | 1000K | 编程开发 |
-| Qwen3-Max | 高性能 | 262K | 复杂推理 |
-| Qwen-Plus | 平衡型 | 128K | 日常问答 |
-| Qwen-Long | 超长文档 | 1000万 | 整本书/PDF |
-
-预置智能路由：
-
-| 任务类型 | 自动选择 | 成功率参考 |
-| --- | --- | --- |
-| 代码开发 | Qwen3-Coder-Plus | ~85%+ |
-| Agent 工作流 | MiniMax-M2.5 | ~93% |
-| 通用对话 | Kimi-K2.5 | ~93% |
-| 长文本 | Qwen3.5-Plus | ~88%+ |
-| 超长文档 | Qwen-Long | ~90%+ |
-| 图片分析 | Kimi-K2.5 | ~93% |
-
-规则说明：
-- 选择「阿里百炼」才会要求填写 API Key，并启用智能路由。
-- 选择「默认」则不写入智能路由，保持 OpenClaw 默认行为。
-
-## 4) 启动与管理
-
-安装后直接输入：
+启动管理器：
 
 ```bash
 openclow-manager
 ```
 
-如果当前终端提示 `command not found`，先执行：
+如果提示 `command not found`：
 
 ```bash
 source ~/.zshrc
 openclow-manager
 ```
 
-在管理器里：
-- 先用 `2) 设置飞书/模型配置`
-- 再用 `3) 启动并开启自启动`
-- 执行 `3` 后会自动打开控制台页面（带 token）
-- 后续可用数字 `1-10` 直接操作，不需要方向键
+管理器里按这个顺序：
 
-## 5) 关键配置文件
+1. 选 `2) 设置飞书/模型配置`
+2. 选 `3) 启动并开启自启动`
 
-- 安装输入配置：`~/.config/openclow/config.env`
-- OpenClaw 运行配置：`~/.config/openclow/openclaw.json`
+执行 `3` 后会自动打开控制台页面（带 token）。
 
-字段对应：
-- `FEISHU_APP_ID`
-- `FEISHU_APP_SECRET`
-- `MODEL_PROVIDER`（`aliyun-bailian` / `default`）
-- `MODELSTUDIO_API_KEY`
+## 4. 页面地址怎么打开才对
 
-## 6) 常见问题（按你截图补充）
+不要手动输 `http://127.0.0.1:18789/`。
 
-1. 飞书后台提示 `No connection detected`
-- 这是本地长连接还没建立，不是飞书页面问题。
-- 先在本机执行 `openclow-manager`。
-- 选择 `2) 设置飞书/模型配置`，填好 `App ID` 和 `App Secret`。
-- 再选择 `3) 启动并开启自启动`（新版会自动打印最近启动日志）。
-- 回到飞书开放平台，再点保存长连接配置。
-- 如果还是不通，手动执行一次插件启用（只需一次）：
+请用：
+
+```bash
+openclow dashboard
+```
+
+这个命令会自动带 token 打开浏览器，不会出现 `gateway token missing`。
+
+## 5. 常见问题
+
+### 5.1 飞书提示 `No connection detected`
+
+先看下面这个典型页面（就是这个报错）：
+
+![Feishu no connection example](assets/feishu-no-connection.png)
+
+处理步骤：
+
+1. 确认你已经添加事件 `im.message.receive_v1`
+2. 确认飞书应用已经发布版本
+3. 本机执行 `openclow-manager`，再选 `3) 启动并开启自启动`
+4. 回飞书页面重新点 `Save`
+
+如果还不行，手动执行一次：
+
 ```bash
 OPENCLAW_CONFIG_PATH=~/.config/openclow/openclaw.json ~/.local/bin/openclow plugins enable feishu
 openclow-manager
 ```
 
-2. 管理器里显示“飞书应用: 未配置”
-- 通常是 `App ID` 或 `App Secret` 没真正写入。
-- 执行 `openclow-manager` -> `2) 设置飞书/模型配置` 重新填写。
-- 填完后用 `1) 查看当前配置` 确认 `FEISHU_APP_ID` 已显示，`FEISHU_APP_SECRET` 不为空（会脱敏显示）。
+### 5.2 安装后怎么确认成功
 
-3. 看起来“一直在下载中”
-- 首次 `npm install` 依赖较多，可能持续几分钟。
-- 出现 `deprecated` 警告通常不是失败。
-- 只要最后出现 `Install complete.` 就是安装成功。
-
-4. `openclow-manager` 提示找不到
-- 执行：
 ```bash
-source ~/.zshrc
-openclow-manager
-```
-- 还是不行就直接用绝对路径：
-```bash
-~/.local/bin/openclow-manager
+~/.local/bin/openclow --help
+~/.local/bin/openclow dashboard --no-open
 ```
 
-5. 页面提示 `unauthorized: gateway token missing`
-- 不要手动输入 `http://127.0.0.1:18789/`。
-- 正确打开方式是执行：
+- 第一条有帮助输出：说明程序已安装
+- 第二条会打印 dashboard 地址
+
+### 5.3 看实时日志
+
 ```bash
-openclow dashboard
+tail -f ~/.openclow/openclow.log ~/.openclow/openclow.err.log
 ```
-- 该命令会自动带上网关 token 并打开浏览器。
+
+## 6. 模型配置说明（阿里百炼）
+
+百炼入口：[阿里百炼 Coding Plan](https://bailian.console.aliyun.com/cn-beijing/?spm=5176.29619931.J_SEsSjsNv72yRuRFS2VknO.2.1f5a10d7wzFGtq&tab=coding-plan#/efm/detail)
+
+规则：
+- 选择 `aliyun-bailian` 时，必须填写 API Key，安装器会写入智能路由
+- 选择 `default` 时，不写智能路由，保持 OpenClaw 默认行为
+
+关键配置文件：
+- `~/.config/openclow/config.env`
+- `~/.config/openclow/openclaw.json`
