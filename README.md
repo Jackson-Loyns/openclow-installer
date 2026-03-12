@@ -80,6 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/Jackson-Loyns/openclow-installer/ma
 - 检查环境（会显示检查过程）
 - 自动安装 OpenClow
 - 在 macOS 无管理员权限时自动走用户目录安装（不依赖 sudo）
+- 自动检查 `git` / Command Line Tools（首次可能弹出安装提示）
 - 提示输入飞书配置
 - 生成并自动打开 `openclow-manager`
 

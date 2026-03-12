@@ -223,7 +223,7 @@ detect_package_manager() {
 collect_base_dependency_status() {
   local dep
   MISSING_BASE_DEPS=()
-  for dep in curl tar grep sed awk; do
+  for dep in curl tar grep sed awk git; do
     command_exists "$dep" || MISSING_BASE_DEPS+=("$dep")
   done
 }
@@ -284,7 +284,7 @@ print_preflight_report() {
   printf '包管理器: %s\n' "${PKG_MANAGER:-未检测到}"
 
   if [[ "${#MISSING_BASE_DEPS[@]}" -eq 0 ]]; then
-    printf '基础依赖: OK (curl tar grep sed awk)\n'
+    printf '基础依赖: OK (curl tar grep sed awk git)\n'
   else
     printf '基础依赖: 缺失 -> %s\n' "${MISSING_BASE_DEPS[*]}"
   fi
@@ -380,12 +380,12 @@ EOF
 install_missing_deps() {
   local missing=()
   local dep
-  for dep in curl tar grep sed awk; do
+  for dep in curl tar grep sed awk git; do
     command_exists "$dep" || missing+=("$dep")
   done
 
   if [[ "${#missing[@]}" -eq 0 ]]; then
-    log "Base dependencies OK: curl tar grep sed awk"
+    log "Base dependencies OK: curl tar grep sed awk git"
     return
   fi
 
@@ -396,6 +396,18 @@ install_missing_deps() {
   fi
 
   err "Missing base dependencies on macOS: ${missing[*]}. Please install Command Line Tools first: xcode-select --install"
+}
+
+ensure_git_ready_macos() {
+  if command_exists git && git --version >/dev/null 2>&1; then
+    return
+  fi
+  warn "Git is unavailable. openclaw npm dependencies require git."
+  if command_exists xcode-select; then
+    warn "Trying to launch Command Line Tools installer..."
+    xcode-select --install >/dev/null 2>&1 || true
+  fi
+  err "Git/Command Line Tools are not ready. Please finish installation, then rerun the installer."
 }
 
 python_version_ge() {
@@ -587,10 +599,18 @@ install_with_npm() {
 
   activate_local_paths
   command_exists npm || err "npm not found. Node.js install seems incomplete."
+  ensure_git_ready_macos
+
+  # Some environments rewrite github URLs to ssh://git@github.com/... and fail.
+  if command_exists git; then
+    git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" >/dev/null 2>&1 || true
+    git config --global url."https://github.com/".insteadOf "git@github.com:" >/dev/null 2>&1 || true
+  fi
 
   log "Installing via npm: $spec"
+  log "This may take several minutes on first run (downloading npm dependencies)..."
   mkdir -p "$NPM_GLOBAL_DIR" "$NPM_GLOBAL_BIN_DIR"
-  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" "$spec"; then
+  if ! npm install -g --prefix "$NPM_GLOBAL_DIR" --no-audit --no-fund "$spec"; then
     err "npm install failed for $spec (user-local prefix: $NPM_GLOBAL_DIR)."
   fi
 
